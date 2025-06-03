@@ -1,6 +1,4 @@
-// Package scanners implements the different scanners that can be launched by
-// our agentless scanner.
-package scanners
+package ddtrivy
 
 import (
 	"context"
@@ -11,11 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/DataDog/datadog-agentless-scanner/pkg/log"
-	"github.com/DataDog/datadog-agentless-scanner/pkg/types"
-	ddogstatsd "github.com/DataDog/datadog-go/v5/statsd"
-	"github.com/google/go-containerregistry/pkg/name"
-	"golang.org/x/exp/slices"
+	cdx "github.com/CycloneDX/cyclonedx-go"
 
 	"github.com/aquasecurity/trivy-db/pkg/db"
 	jdb "github.com/aquasecurity/trivy-java-db/pkg/db"
@@ -23,9 +17,9 @@ import (
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/applier"
 	"github.com/aquasecurity/trivy/pkg/fanal/artifact"
+	trivyartifact "github.com/aquasecurity/trivy/pkg/fanal/artifact"
 	trivyartifactcontainer "github.com/aquasecurity/trivy/pkg/fanal/artifact/container"
 	trivyartifactlocal "github.com/aquasecurity/trivy/pkg/fanal/artifact/local"
-	"github.com/aquasecurity/trivy/pkg/fanal/container"
 	trivyhandler "github.com/aquasecurity/trivy/pkg/fanal/handler"
 	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/fanal/walker"
@@ -37,11 +31,9 @@ import (
 	"github.com/aquasecurity/trivy/pkg/scanner/ospkg"
 	trivytypes "github.com/aquasecurity/trivy/pkg/types"
 	"github.com/aquasecurity/trivy/pkg/vulnerability"
-)
 
-var (
-	trivyCacheDir      = types.CacheRootDir("trivy")
-	trivyJavaDBDirname = filepath.Join(trivyCacheDir, "java-db")
+	"github.com/google/go-containerregistry/pkg/name"
+	"golang.org/x/exp/slices"
 )
 
 var trivyDefaultJavaDBRepositories = []string{
@@ -74,7 +66,7 @@ var osPkgDirs = []string{
 	"x86_64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
 }
 
-func initTrivyJavaDB() {
+func InitJavaDB(trivyCacheDir string) {
 	var repos []name.Reference
 	for _, url := range trivyDefaultJavaDBRepositories {
 		repo, err := name.NewTag(url)
@@ -86,37 +78,8 @@ func initTrivyJavaDB() {
 	javadb.Init(trivyCacheDir, repos, false, false, ftypes.RegistryOptions{})
 }
 
-// Initialize and download the JavaDB required for Trivy application scans.
-func InitTrivy(ctx context.Context) error {
-	if err := os.MkdirAll(trivyJavaDBDirname, 0755); err != nil {
-		return fmt.Errorf("failed to create JavaDB directory: %w", err)
-	}
-
-	initTrivyJavaDB()
-
-	// Let's not trust Trivy on this one, since this is called in our critical
-	// startup path. We add a timeout to the update process.
-	errch := make(chan error, 1)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				errch <- fmt.Errorf("javadb update failed: %v", r)
-			}
-		}()
-		if err := javadb.Update(); err != nil {
-			errch <- fmt.Errorf("javadb update failed: %w", err)
-		} else {
-			log.Infof("javadb updated")
-			errch <- nil
-		}
-	}()
-
-	select {
-	case err := <-errch:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+func UpdateJavaDB() error {
+	return javadb.Update()
 }
 
 var trivyAnalyzersAll = []analyzer.Type{
@@ -240,10 +203,10 @@ func excludeTrivyAnalyzer(allowedAnalyzers []analyzer.Type, filtered analyzer.Ty
 	return analyzers
 }
 
-func trivyOptionsOS() artifact.Option {
+func TrivyOptionsOS() trivyartifact.Option {
 	var allowedAnalyzers []analyzer.Type
 	allowedAnalyzers = append(allowedAnalyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)...)
-	return artifact.Option{
+	return trivyartifact.Option{
 		Offline:           true,
 		NoProgress:        true,
 		DisabledAnalyzers: getTrivyDisabledAnalyzers(allowedAnalyzers),
@@ -257,15 +220,15 @@ func trivyOptionsOS() artifact.Option {
 	}
 }
 
-// trivyOptionsAllForHosts returns the default options for trivy to scan applications
+// TrivyOptionsAllForHosts returns the default options for trivy to scan applications
 // on possibly big hosts root filesystems.
-func trivyOptionsAllForHosts() artifact.Option {
+func TrivyOptionsAllForHosts() trivyartifact.Option {
 	var allowedAnalyzers []analyzer.Type
 	allowedAnalyzers = append(allowedAnalyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)...)
-	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeIndividualPkgs...)
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeLanguages...) // XXX was TypeIndividualPkgs
 	// Enables the executable analyzer to retrieve version for java, nodejs, php and python interpreters.
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeExecutable)
-	return artifact.Option{
+	return trivyartifact.Option{
 		Offline:           true,
 		NoProgress:        true,
 		DisabledAnalyzers: getTrivyDisabledAnalyzers(allowedAnalyzers),
@@ -282,9 +245,9 @@ func trivyOptionsAllForHosts() artifact.Option {
 	}
 }
 
-// trivyOptionsAll returns the default options for trivy to scan application and
+// TrivyOptionsAll returns the default options for trivy to scan application and
 // OS packages.
-func trivyOptionsAll() artifact.Option {
+func TrivyOptionsAll() trivyartifact.Option {
 	var allowedAnalyzers []analyzer.Type
 	// Enable the OS packages analyzers to fill the SystemInstalledFiles list with the list of files
 	// installed by the package managers, so they are excluded from the other analyzers.
@@ -299,7 +262,7 @@ func trivyOptionsAll() artifact.Option {
 	// Enables the executable analyzer to retrieve version for java, nodejs, php and python interpreters.
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeExecutable)
 
-	return artifact.Option{
+	return trivyartifact.Option{
 		Offline:           true,
 		NoProgress:        true,
 		DisabledAnalyzers: getTrivyDisabledAnalyzers(allowedAnalyzers),
@@ -334,73 +297,37 @@ func trivyOptionsAll() artifact.Option {
 	}
 }
 
-func trivyOptions(opts types.ScannerOptions) artifact.Option {
-	switch opts.Action {
-	case types.ScanActionVulnsHostOS,
-		types.ScanActionVulnsRunningContainersOS,
-		types.ScanActionVulnsContainerImagesOS:
-		return trivyOptionsOS()
-	case types.ScanActionVulnsHostApp:
-		return trivyOptionsAllForHosts()
-	case types.ScanActionVulnsApp,
-		types.ScanActionVulnsRunningContainersApp,
-		types.ScanActionVulnsContainerImagesApp:
-		return trivyOptionsAll()
-	}
-	panic(fmt.Sprintf("unsupported action for trivy: %s", opts.Action))
-}
-
-// LaunchTrivyRootFS launches a trivy scan on a root filesystems.
-func LaunchTrivyRootFS(ctx context.Context, sc *types.ScannerConfig, statsd ddogstatsd.ClientInterface, opts types.ScannerOptions, artifactOpts artifact.Option) (*types.ScanResultVulns, error) {
+// ScanRootFS launches a trivy scan on a root filesystems.
+func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache trivycache.Cache, rootFS string) (*cdx.BOM, error) {
 	// NOTE: the trivy cache key calculated based on the artifact options will
 	// always be different because of this.
 	wo := &artifactOpts.WalkerOption
-	wo.OnlyDirs = rootFiles(opts.Entity.RootFS(), wo.OnlyDirs)
-	wo.SkipDirs = rootFiles(opts.Entity.RootFS(), wo.SkipDirs)
-	wo.SkipFiles = rootFiles(opts.Entity.RootFS(), wo.SkipFiles)
+	wo.OnlyDirs = rootFiles(rootFS, wo.OnlyDirs)
+	wo.SkipDirs = rootFiles(rootFS, wo.SkipDirs)
+	wo.SkipFiles = rootFiles(rootFS, wo.SkipFiles)
 	fs := walker.NewFS()
-	trivyCache := trivycache.NewMemoryCache()
-	trivyArtifact, err := trivyartifactlocal.NewArtifact(opts.Entity.RootFS(), trivyCache, fs, artifactOpts)
+	trivyArtifact, err := trivyartifactlocal.NewArtifact(rootFS, trivyCache, fs, artifactOpts)
 	if err != nil {
 		return nil, fmt.Errorf("could not create local trivy artifact: %w", err)
 	}
-	return doTrivyScan(ctx, opts, trivyArtifact, trivyCache)
+	return doTrivyScan(ctx, trivyArtifact, trivyCache)
 }
 
-// LaunchTrivyOverlays launches a trivy scan on a local filesystem represened by
-// a set of overlays.
-func LaunchTrivyOverlays(ctx context.Context, sc *types.ScannerConfig, statsd ddogstatsd.ClientInterface, opts types.ScannerOptions, artifactOpts artifact.Option) (*types.ScanResultVulns, error) {
+// ScanOverlays launches a trivy scan on a local filesystem represened by a set of overlays.
+func ScanOverlays(ctx context.Context, artifactOpts trivyartifact.Option, trivyCache trivycache.Cache, ctr ftypes.Container) (*cdx.BOM, error) {
 	fs := walker.NewFS()
-	var trivyCache interface {
-		trivycache.LocalArtifactCache
-		trivycache.ArtifactCache
-	}
-	if sc.ScanCacheDisabled {
-		trivyCache = trivycache.NewMemoryCache()
-	} else {
-		trivyCache = loadTrivyFSCache(statsd)
-	}
-	ctr := container.NewContainer(
-		opts.Entity.ContainerImage.RefCanonical(),
-		opts.Entity.ContainerImage.RefTagged(),
-		opts.Entity.ContainerImage.ImageID,
-		opts.Entity.ContainerImage.ConfigFile,
-		toLayerPath(opts.Entity.Overlays()))
 	trivyArtifact, err := trivyartifactcontainer.NewArtifact(ctr, trivyCache, fs, artifactOpts)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create artifact from fs: %w", err)
 	}
-	return doTrivyScan(ctx, opts, trivyArtifact, trivyCache)
+	return doTrivyScan(ctx, trivyArtifact, trivyCache)
 }
 
-func doTrivyScan(ctx context.Context, opts types.ScannerOptions, trivyArtifact artifact.Artifact, trivyCache trivycache.LocalArtifactCache) (*types.ScanResultVulns, error) {
+func doTrivyScan(ctx context.Context, trivyArtifact trivyartifact.Artifact, trivyCache trivycache.LocalArtifactCache) (*cdx.BOM, error) {
 	trivyInitOnce.Do(func() {
 		// Making sure the Unpackaged post handler relying on external DBs is
 		// deregistered
 		trivyhandler.DeregisterPostHandler(ftypes.UnpackagedPostHandler)
-
-		// Init the JavaDB required for trivy application scans
-		initTrivyJavaDB()
 	})
 
 	trivyOSScanner := ospkg.NewScanner()
@@ -410,7 +337,6 @@ func doTrivyScan(ctx context.Context, opts types.ScannerOptions, trivyArtifact a
 	trivyLocalScanner := local.NewScanner(trivyApplier, trivyOSScanner, trivyLangScanner, trivyVulnClient)
 	trivyScanner := trivyscanner.NewScanner(trivyLocalScanner, trivyArtifact)
 
-	log.Debugf("%s: trivy: starting scan", opts.Scan)
 	trivyReport, err := trivyScanner.ScanArtifact(ctx, trivytypes.ScanOptions{
 		Scanners:            trivytypes.Scanners{trivytypes.SBOMScanner},
 		ScanRemovedPackages: false,
@@ -420,18 +346,12 @@ func doTrivyScan(ctx context.Context, opts types.ScannerOptions, trivyArtifact a
 	if err != nil {
 		return nil, fmt.Errorf("trivy scan failed: %w", err)
 	}
-	log.Debugf("%s: trivy: scan of artifact finished successfully", opts.Scan)
 	marshaler := cyclonedx.NewMarshaler("")
 	cyclonedxBOM, err := marshaler.MarshalReport(ctx, trivyReport)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal report to sbom format: %w", err)
 	}
-	if img := opts.Entity.ContainerImage; img != nil {
-		appendSBOMRepoMetadata(cyclonedxBOM, img.ContainerReferences)
-	}
-	return &types.ScanResultVulns{
-		BOM: cyclonedxBOM,
-	}, nil
+	return cyclonedxBOM, nil
 }
 
 func rootFiles(root string, files []string) []string {
@@ -442,24 +362,12 @@ func rootFiles(root string, files []string) []string {
 	return s
 }
 
-func toLayerPath(layers []types.ContainerImageLayer) []ftypes.LayerPath {
-	new := make([]ftypes.LayerPath, 0, len(layers))
-	for _, layer := range layers {
-		new = append(new, ftypes.LayerPath{
-			DiffID: layer.DiffID,
-			Digest: layer.Digest,
-			Path:   layer.Path,
-		})
-	}
-	return new
-}
-
-// hasLinuxPackageFiles returns true when the target root file system contains
+// HasLinuxPackageFiles returns true when the target root file system contains
 // a directory supported by Trivy's operating system packages analyzers.
-func hasLinuxPackageFiles(opts types.ScannerOptions) (string, bool) {
+func HasLinuxPackageFiles(rootFS string) (string, bool) {
 	for _, dir := range osPkgDirs {
 		name := strings.TrimRight(dir, "*") // Remove wildcards
-		_, err := os.Stat(path.Join(opts.Entity.RootFS(), name))
+		_, err := os.Stat(path.Join(rootFS, name))
 		if err != nil {
 			continue
 		}
