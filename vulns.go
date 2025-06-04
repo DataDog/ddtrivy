@@ -102,7 +102,7 @@ var trivyAnalyzersAll = []analyzer.Type{
 	analyzer.TypeUbuntu,
 	analyzer.TypeUbuntuESM,
 	analyzer.TypeApk,
-	analyzer.TypeBottlerocket,
+	analyzer.TypeBottlerocketInventory,
 	analyzer.TypeDpkg,
 	analyzer.TypeDpkgLicense,
 	analyzer.TypeRpm,
