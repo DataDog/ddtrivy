@@ -15,6 +15,7 @@
 "github.com/BurntSushi/toml","https://github.com/BurntSushi/toml","['MIT']","['TOML authors']"
 "github.com/CycloneDX/cyclonedx-go","https://github.com/CycloneDX/cyclonedx-go","['Apache-2.0']","['OWASP Foundation']"
 "github.com/DataDog/ddtrivy","https://github.com/DataDog/ddtrivy","['Apache-2.0']","['DataDog']"
+"github.com/DataDog/trivy","https://github.com/DataDog/trivy","['Apache-2.0']","['Alexey Raspopov, Kostiantyn Denysov, Anton Verinov', 'Andrey Sitnik', 'Aqua Security Software Ltd.', 'Corporation for National Research Initiatives', 'Mozilla Foundation and contributors', 'Python Software Foundation', 'Stichting Mathematisch Centrum Amsterdam, The Netherlands', 'TOML authors', 'Teppei Fukuda', 'Yuxi', 'test', 'various contributors']"
 "github.com/DataDog/zstd","https://github.com/DataDog/zstd","['BSD-2-Clause', 'BSD-3-Clause']","['Datadog']"
 "github.com/GoogleCloudPlatform/docker-credential-gcr","https://github.com/GoogleCloudPlatform/docker-credential-gcr","['Apache-2.0']","['GoogleCloudPlatform']"
 "github.com/ProtonMail/go-crypto","https://github.com/ProtonMail/go-crypto","['BSD-3-Clause']","['The Go Authors']"
@@ -59,6 +60,7 @@
 "github.com/go-redis/redis/v8","https://github.com/go-redis/redis/tree/master/v8","['BSD-2-Clause']","['Copyright (c) 2013 The']"
 "github.com/golang-jwt/jwt/v4","https://github.com/golang-jwt/jwt/tree/main/v4","['MIT']","['Dave Grijalva', 'golang-jwt']"
 "github.com/golang-jwt/jwt/v5","https://github.com/golang-jwt/jwt/tree/main/v5","['MIT']","['Dave Grijalva', 'golang-jwt']"
+"github.com/golang/mock","https://github.com/golang/mock","['Apache-2.0']","['golang']"
 "github.com/google/go-containerregistry","https://github.com/google/go-containerregistry","['Apache-2.0']","['Alan Shreve', 'Alex Ogier', 'Brian Goff', 'Caleb Spare', 'Canonical Ltd', 'Canonical Ltd.', 'Dave Cheney', 'David Calavera', 'Docker, Inc.', 'Felix Geisendorfer', 'Kirill Simonov', 'Klaus Post', 'Microsoft', 'Mitchell Hashimoto', 'OCI Contributors', 'Russ Ross', 'Simon Eskildsen', 'The Go Authors', 'The GoGo Authors', 'The Linux Foundation', 'The New York Times Company', 'The Snappy-Go Authors', 'The filepathx', 'Vincent Batts, Raleigh, NC']"
 "github.com/google/uuid","https://github.com/google/uuid","['BSD-3-Clause']","['Google Inc.']"
 "github.com/google/wire","https://github.com/google/wire","['Apache-2.0']","['google']"
@@ -122,3 +124,4 @@
 "gopkg.in/cheggaaa/pb.v1","https://gopkg.in/cheggaaa/pb.v1","['BSD-3-Clause']","['Sergey Cherepanov']"
 "gopkg.in/yaml.v3","https://gopkg.in/yaml.v3","['(MIT', 'Apache-2.0)', 'MIT']","['Canonical Ltd', 'Canonical Ltd.', 'Kirill Simonov']"
 "k8s.io/utils","https://k8s.io/utils","['Apache-2.0']","['The Go Authors']"
+
