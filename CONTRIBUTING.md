@@ -6,7 +6,7 @@ Welcome! We are glad you are interested in contributing to ddtrivy. This guide w
 
 ### Signing commits
 
-Provide signed commits before merging. To learn how to sign your commits, follow this procedure from Github.
+Provide signed commits before merging. To learn how to sign your commits, follow [this procedure from Github](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
 
 ## Contributing to issues
 
