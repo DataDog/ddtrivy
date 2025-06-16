@@ -1,0 +1,11 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-type: direct
+    ignore:
+      - dependency-name: github.com/aquasecurity/trivy*
+      - dependency-name: github.com/DataDog/trivy
