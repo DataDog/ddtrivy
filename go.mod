@@ -2,7 +2,7 @@ module github.com/DataDog/ddtrivy
 
 go 1.24.0
 
-replace github.com/aquasecurity/trivy => github.com/DataDog/trivy v0.0.0-20250526103259-ac597e6e8b50
+replace github.com/aquasecurity/trivy => github.com/DataDog/trivy v0.0.0-20250715150938-0ecdc33e2882
 
 require (
 	github.com/CycloneDX/cyclonedx-go v0.9.2
