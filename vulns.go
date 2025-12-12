@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	cdx "github.com/CycloneDX/cyclonedx-go"
+	"syscall"
 
 	"github.com/aquasecurity/trivy-db/pkg/db"
 	jdb "github.com/aquasecurity/trivy-java-db/pkg/db"
@@ -31,7 +32,6 @@ import (
 	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/fanal/walker"
 	"github.com/aquasecurity/trivy/pkg/javadb"
-	"github.com/aquasecurity/trivy/pkg/sbom/cyclonedx"
 	trivyscanner "github.com/aquasecurity/trivy/pkg/scanner"
 	"github.com/aquasecurity/trivy/pkg/scanner/langpkg"
 	"github.com/aquasecurity/trivy/pkg/scanner/local"
@@ -214,56 +214,140 @@ func excludeTrivyAnalyzer(allowedAnalyzers []analyzer.Type, filtered analyzer.Ty
 	return analyzers
 }
 
-func TrivyOptionsOS() trivyartifact.Option {
-	var allowedAnalyzers []analyzer.Type
-	allowedAnalyzers = append(allowedAnalyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)...)
-	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeRedHatContentManifestType)
-	return trivyartifact.Option{
+func errorCallback(_ string, err error) error {
+	if errors.Is(err, fs.ErrPermission) || errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if errors.Is(err, syscall.ESRCH) {
+		// ignore "no such process" errors when walking /proc/<pid>
+		return nil
+	}
+	return err
+}
+
+func looselyCompareAnalyzers(given []analyzer.Type, against []analyzer.Type) bool {
+	target := make(map[analyzer.Type]struct{}, len(against))
+	for _, val := range against {
+		target[val] = struct{}{}
+	}
+
+	validated := make(map[analyzer.Type]struct{})
+
+	for _, val := range given {
+		// if already validated, skip
+		// this allows to support duplicated entries
+		if _, ok := validated[val]; ok {
+			continue
+		}
+
+		// if this value is not in
+		if _, ok := target[val]; !ok {
+			return false
+		}
+		delete(target, val)
+		validated[val] = struct{}{}
+	}
+
+	return len(target) == 0
+}
+
+func getArtifactOption(analyzers []analyzer.Type, parallel int) artifact.Option {
+	option := trivyartifact.Option{
 		Offline:           true,
+		OfflineJar:        true,
 		NoProgress:        true,
-		DisabledAnalyzers: getTrivyDisabledAnalyzers(allowedAnalyzers),
-		Parallel:          1,
+		DisabledAnalyzers: getTrivyDisabledAnalyzers(analyzers),
+		Parallel:          parallel,
 		SBOMSources:       []string{},
 		DisabledHandlers:  []ftypes.HandlerType{ftypes.UnpackagedPostHandler},
 		WalkerOption: walker.Option{
-			SkipDirs: trivyDefaultSkipDirs,
-			OnlyDirs: osPkgDirs,
+			ErrorCallback: errorCallback,
+			SkipDirs:      trivyDefaultSkipDirs,
 		},
+		AnalyzerTimeout:     time.Duration(4 * time.Minute),
 		PostAnalyzerTimeout: time.Duration(4 * time.Minute),
 	}
+
+	option.WalkerOption.SkipDirs = trivyDefaultSkipDirs
+
+	if looselyCompareAnalyzers(analyzers, analyzer.TypeOSes) {
+		option.WalkerOption.OnlyDirs = []string{
+			"/etc/*",
+			"/lib/apk/db/*",
+			"/usr/lib/*",
+			"/usr/lib/sysimage/rpm/*",
+			"/var/lib/dpkg/**",
+			"/var/lib/rpm/*",
+			"/usr/share/rpm/*",
+			"/aarch64-bottlerocket-linux-gnu/sys-root/usr/lib/*",
+			"/aarch64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
+			"/x86_64-bottlerocket-linux-gnu/sys-root/usr/lib/*",
+			"/x86_64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
+			"/root/buildinfo/content_manifests/*",
+			"/usr/share/buildinfo/*",
+		}
+	} else {
+		option.WalkerOption.SkipDirs = append(
+			option.WalkerOption.SkipDirs,
+			"/bin/**",
+			"/boot/**",
+			"/dev/**",
+			"/media/**",
+			"/mnt/**",
+			"/proc/**",
+			"/run/**",
+			"/sbin/**",
+			"/sys/**",
+			"/sysroot/**",
+			"/tmp/**",
+			"/usr/bin/**",
+			"/usr/sbin/**",
+			"/var/cache/**",
+			"/var/lib/containerd/**",
+			"/var/lib/containers/**",
+			"/var/lib/docker/**",
+			"/var/lib/kubelet/pods/**",
+			"/var/lib/kubelet/plugins/**/globalmount/**",
+			"/var/lib/libvirt/**",
+			"/var/lib/snapd/**",
+			"/var/log/**",
+			"/var/run/**",
+			"/var/tmp/**",
+		)
+	}
+
+	return option
+}
+
+func TrivyOptionsOS(parallel int) trivyartifact.Option {
+	var allowedAnalyzers []analyzer.Type
+	allowedAnalyzers = append(allowedAnalyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)...)
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeRedHatContentManifestType)
+
+	return getArtifactOption(allowedAnalyzers, parallel)
 }
 
 // TrivyOptionsAllForHosts returns the default options for trivy to scan applications
 // on possibly big hosts root filesystems.
-func TrivyOptionsAllForHosts() trivyartifact.Option {
+func TrivyOptionsAllForHosts(parallel int) trivyartifact.Option {
 	var allowedAnalyzers []analyzer.Type
 	allowedAnalyzers = append(allowedAnalyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)...)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeRedHatContentManifestType)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeIndividualPkgs...)
 	// Enables the executable analyzer to retrieve version for java, nodejs, php and python interpreters.
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeExecutable)
-	return trivyartifact.Option{
-		Offline:           true,
-		NoProgress:        true,
-		DisabledAnalyzers: getTrivyDisabledAnalyzers(allowedAnalyzers),
-		Parallel:          1,
-		SBOMSources:       []string{},
-		DisabledHandlers:  []ftypes.HandlerType{ftypes.UnpackagedPostHandler},
-		WalkerOption: walker.Option{
-			SkipDirs: trivyDefaultSkipDirs,
-			OnlyDirs: append(osPkgDirs, []string{
-				"opt/**",
-				"usr/local/**",
-			}...),
-		},
-		AnalyzerTimeout:     time.Duration(4 * time.Minute),
-		PostAnalyzerTimeout: time.Duration(4 * time.Minute),
-	}
+
+	artifactOption := getArtifactOption(allowedAnalyzers, parallel)
+	artifactOption.WalkerOption.OnlyDirs = append(artifactOption.WalkerOption.OnlyDirs,
+		"opt/**",
+		"usr/local/**",
+	)
+	return artifactOption
 }
 
 // TrivyOptionsAll returns the default options for trivy to scan application and
 // OS packages.
-func TrivyOptionsAll() trivyartifact.Option {
+func TrivyOptionsAll(parallel int) trivyartifact.Option {
 	var allowedAnalyzers []analyzer.Type
 	// Enable the OS packages analyzers to fill the SystemInstalledFiles list with the list of files
 	// installed by the package managers, so they are excluded from the other analyzers.
@@ -279,46 +363,26 @@ func TrivyOptionsAll() trivyartifact.Option {
 	// Enables the executable analyzer to retrieve version for java, nodejs, php and python interpreters.
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeExecutable)
 
-	return trivyartifact.Option{
-		Offline:           true,
-		NoProgress:        true,
-		DisabledAnalyzers: getTrivyDisabledAnalyzers(allowedAnalyzers),
-		Parallel:          2,
-		SBOMSources:       []string{},
-		DisabledHandlers:  []ftypes.HandlerType{ftypes.UnpackagedPostHandler},
-		WalkerOption: walker.Option{
-			SkipDirs: append([]string{
-				"bin/**",
-				"boot/**",
-				"dev/**",
-				"media/**",
-				"mnt/**",
-				"proc/**",
-				"run/**",
-				"sbin/**",
-				"sys/**",
-				"sysroot/**",
-				"tmp/**",
-				"usr/bin/**",
-				"usr/sbin/**",
-				"var/cache/**",
-				"var/lib/containerd/**",
-				"var/lib/containers/**",
-				"var/lib/docker/**",
-				"var/lib/kubelet/pods/**",
-				"var/lib/libvirt/**",
-				"var/lib/snapd/**",
-				"var/log/**",
-				"var/run/**",
-				"var/tmp/**",
-			}, trivyDefaultSkipDirs...),
-		},
-		PostAnalyzerTimeout: time.Duration(4 * time.Minute),
-	}
+	return getArtifactOption(allowedAnalyzers, parallel)
+}
+
+type artifactWithType struct {
+	inner     artifact.Artifact
+	forceType artifact.Type
+}
+
+func (fa *artifactWithType) Inspect(ctx context.Context) (artifact.Reference, error) {
+	ref, err := fa.inner.Inspect(ctx)
+	ref.Type = fa.forceType
+	return ref, err
+}
+
+func (fa *artifactWithType) Clean(ref artifact.Reference) error {
+	return fa.inner.Clean(ref)
 }
 
 // ScanRootFS launches a trivy scan on a root filesystems.
-func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache trivycache.Cache, rootFS string) (*cdx.BOM, error) {
+func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache trivycache.Cache, rootFS string) (*trivytypes.Report, error) {
 	// NOTE: the trivy cache key calculated based on the artifact options will
 	// always be different because of this.
 	wo := &artifactOpts.WalkerOption
@@ -330,20 +394,37 @@ func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache tr
 	if err != nil {
 		return nil, fmt.Errorf("could not create local trivy artifact: %w", err)
 	}
-	return doTrivyScan(ctx, trivyArtifact, trivyCache)
+
+	wrapper := &artifactWithType{
+		inner:     trivyArtifact,
+		forceType: artifact.TypeFilesystem,
+	}
+
+	trivyReport, err := doTrivyScan(ctx, wrapper, trivyCache)
+	if err != nil {
+		return nil, fmt.Errorf("trivy scan failed: %w", err)
+	}
+
+	return trivyReport, err
 }
 
 // ScanOverlays launches a trivy scan on a local filesystem represened by a set of overlays.
-func ScanOverlays(ctx context.Context, artifactOpts trivyartifact.Option, trivyCache trivycache.Cache, ctr ftypes.Container) (*cdx.BOM, error) {
+func ScanOverlays(ctx context.Context, artifactOpts trivyartifact.Option, trivyCache trivycache.Cache, ctr ftypes.Container) (*trivytypes.Report, error) {
 	fs := walker.NewFS()
 	trivyArtifact, err := trivyartifactcontainer.NewArtifact(ctr, trivyCache, fs, artifactOpts)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create artifact from fs: %w", err)
 	}
-	return doTrivyScan(ctx, trivyArtifact, trivyCache)
+
+	trivyReport, err := doTrivyScan(ctx, trivyArtifact, trivyCache)
+	if err != nil {
+		return nil, fmt.Errorf("trivy scan failed: %w", err)
+	}
+
+	return trivyReport, nil
 }
 
-func doTrivyScan(ctx context.Context, trivyArtifact trivyartifact.Artifact, trivyCache trivycache.LocalArtifactCache) (*cdx.BOM, error) {
+func doTrivyScan(ctx context.Context, trivyArtifact trivyartifact.Artifact, trivyCache trivycache.LocalArtifactCache) (*trivytypes.Report, error) {
 	trivyInitOnce.Do(func() {
 		// Making sure the Unpackaged post handler relying on external DBs is
 		// deregistered
@@ -366,13 +447,8 @@ func doTrivyScan(ctx context.Context, trivyArtifact trivyartifact.Artifact, triv
 	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		return nil, fmt.Errorf("trivy scan failed: %w", err)
 	}
-	err1 := err
-	marshaler := cyclonedx.NewMarshaler("")
-	cyclonedxBOM, err := marshaler.MarshalReport(ctx, trivyReport)
-	if err != nil {
-		return nil, fmt.Errorf("unable to marshal report to sbom format: %w", err)
-	}
-	return cyclonedxBOM, err1
+
+	return &trivyReport, err
 }
 
 func rootFiles(root string, files []string) []string {
