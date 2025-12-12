@@ -39,6 +39,8 @@ import (
 	trivytypes "github.com/aquasecurity/trivy/pkg/types"
 	"github.com/aquasecurity/trivy/pkg/vulnerability"
 
+	fswalker "github.com/DataDog/ddtrivy/walker"
+
 	"github.com/google/go-containerregistry/pkg/name"
 	"golang.org/x/exp/slices"
 )
@@ -270,7 +272,7 @@ func getArtifactOption(analyzers []analyzer.Type, parallel int) artifact.Option 
 
 	option.WalkerOption.SkipDirs = trivyDefaultSkipDirs
 
-	if looselyCompareAnalyzers(analyzers, analyzer.TypeOSes) {
+	if looselyCompareAnalyzers(analyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)) {
 		option.WalkerOption.OnlyDirs = []string{
 			"/etc/*",
 			"/lib/apk/db/*",
@@ -389,7 +391,7 @@ func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache tr
 	wo.OnlyDirs = rootFiles(rootFS, wo.OnlyDirs)
 	wo.SkipDirs = rootFiles(rootFS, wo.SkipDirs)
 	wo.SkipFiles = rootFiles(rootFS, wo.SkipFiles)
-	fs := walker.NewFS()
+	fs := fswalker.NewFSWalker()
 	trivyArtifact, err := trivyartifactlocal.NewArtifact(rootFS, trivyCache, fs, artifactOpts)
 	if err != nil {
 		return nil, fmt.Errorf("could not create local trivy artifact: %w", err)
