@@ -64,19 +64,19 @@ var trivyDefaultSkipDirs = []string{
 }
 
 var osPkgDirs = []string{
-	"etc/*",
-	"usr/lib/*",
-	"var/lib/dpkg/*",
-	"var/lib/rpm/*",
-	"usr/lib/sysimage/rpm/*",
-	"usr/share/rpm/*", // RHEL 9 for Edge
-	"lib/apk/db/*",
-	"aarch64-bottlerocket-linux-gnu/sys-root/usr/lib/*",
-	"aarch64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
-	"x86_64-bottlerocket-linux-gnu/sys-root/usr/lib/*",
-	"x86_64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
-	"root/buildinfo/content_manifests/*",
-	"usr/share/buildinfo/*",
+	"/etc/*",
+	"/lib/apk/db/*",
+	"/usr/lib/*",
+	"/usr/lib/sysimage/rpm/*",
+	"/var/lib/dpkg/**",
+	"/var/lib/rpm/*",
+	"/usr/share/rpm/*", // RHEL 9 for Edge
+	"/aarch64-bottlerocket-linux-gnu/sys-root/usr/lib/*",
+	"/aarch64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
+	"/x86_64-bottlerocket-linux-gnu/sys-root/usr/lib/*",
+	"/x86_64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
+	"/root/buildinfo/content_manifests/*",
+	"/usr/share/buildinfo/*",
 }
 
 func InitJavaDB(trivyCacheDir string) {
@@ -273,21 +273,7 @@ func getArtifactOption(analyzers []analyzer.Type, parallel int) artifact.Option 
 	option.WalkerOption.SkipDirs = trivyDefaultSkipDirs
 
 	if looselyCompareAnalyzers(analyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)) {
-		option.WalkerOption.OnlyDirs = []string{
-			"/etc/*",
-			"/lib/apk/db/*",
-			"/usr/lib/*",
-			"/usr/lib/sysimage/rpm/*",
-			"/var/lib/dpkg/**",
-			"/var/lib/rpm/*",
-			"/usr/share/rpm/*",
-			"/aarch64-bottlerocket-linux-gnu/sys-root/usr/lib/*",
-			"/aarch64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
-			"/x86_64-bottlerocket-linux-gnu/sys-root/usr/lib/*",
-			"/x86_64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
-			"/root/buildinfo/content_manifests/*",
-			"/usr/share/buildinfo/*",
-		}
+		option.WalkerOption.OnlyDirs = osPkgDirs
 	} else {
 		option.WalkerOption.SkipDirs = append(
 			option.WalkerOption.SkipDirs,
