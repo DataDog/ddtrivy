@@ -370,7 +370,7 @@ func (fa *artifactWithType) Clean(ref artifact.Reference) error {
 }
 
 // ScanRootFS launches a trivy scan on a root filesystems.
-func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache trivycache.Cache, rootFS string) (*trivytypes.Report, error) {
+func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache trivycache.Cache, rootFS string, artifactType trivyartifact.Type) (*trivytypes.Report, error) {
 	// NOTE: the trivy cache key calculated based on the artifact options will
 	// always be different because of this.
 	wo := &artifactOpts.WalkerOption
@@ -385,7 +385,7 @@ func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache tr
 
 	wrapper := &artifactWithType{
 		inner:     trivyArtifact,
-		forceType: artifact.TypeFilesystem,
+		forceType: artifactType,
 	}
 
 	trivyReport, err := doTrivyScan(ctx, wrapper, trivyCache)
