@@ -7,12 +7,14 @@ package ddtrivy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
@@ -42,6 +44,7 @@ import (
 )
 
 var trivyDefaultJavaDBRepositories = []string{
+	fmt.Sprintf("%s:%d", "mirror.gcr.io/aquasec/trivy-java-db", jdb.SchemaVersion),
 	fmt.Sprintf("%s:%d", "ghcr.io/aquasecurity/trivy-java-db", jdb.SchemaVersion),
 	fmt.Sprintf("%s:%d", "public.ecr.aws/aquasecurity/trivy-java-db", jdb.SchemaVersion),
 }
@@ -70,6 +73,8 @@ var osPkgDirs = []string{
 	"aarch64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
 	"x86_64-bottlerocket-linux-gnu/sys-root/usr/lib/*",
 	"x86_64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
+	"root/buildinfo/content_manifests/*",
+	"usr/share/buildinfo/*",
 }
 
 func InitJavaDB(trivyCacheDir string) {
@@ -212,6 +217,7 @@ func excludeTrivyAnalyzer(allowedAnalyzers []analyzer.Type, filtered analyzer.Ty
 func TrivyOptionsOS() trivyartifact.Option {
 	var allowedAnalyzers []analyzer.Type
 	allowedAnalyzers = append(allowedAnalyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)...)
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeRedHatContentManifestType)
 	return trivyartifact.Option{
 		Offline:           true,
 		NoProgress:        true,
@@ -223,6 +229,7 @@ func TrivyOptionsOS() trivyartifact.Option {
 			SkipDirs: trivyDefaultSkipDirs,
 			OnlyDirs: osPkgDirs,
 		},
+		PostAnalyzerTimeout: time.Duration(4 * time.Minute),
 	}
 }
 
@@ -231,7 +238,8 @@ func TrivyOptionsOS() trivyartifact.Option {
 func TrivyOptionsAllForHosts() trivyartifact.Option {
 	var allowedAnalyzers []analyzer.Type
 	allowedAnalyzers = append(allowedAnalyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)...)
-	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeLanguages...) // XXX was TypeIndividualPkgs
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeRedHatContentManifestType)
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeIndividualPkgs...)
 	// Enables the executable analyzer to retrieve version for java, nodejs, php and python interpreters.
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeExecutable)
 	return trivyartifact.Option{
@@ -248,6 +256,8 @@ func TrivyOptionsAllForHosts() trivyartifact.Option {
 				"usr/local/**",
 			}...),
 		},
+		AnalyzerTimeout:     time.Duration(4 * time.Minute),
+		PostAnalyzerTimeout: time.Duration(4 * time.Minute),
 	}
 }
 
@@ -262,6 +272,7 @@ func TrivyOptionsAll() trivyartifact.Option {
 	// We remove specifically analyzer.TypeDpkgLicense included in TypeOSes from the list of
 	// allowed analyzers to avoid license scanning.
 	allowedAnalyzers = append(allowedAnalyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)...)
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeRedHatContentManifestType)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeLanguages...)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeLockfiles...)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeIndividualPkgs...)
@@ -286,6 +297,7 @@ func TrivyOptionsAll() trivyartifact.Option {
 				"run/**",
 				"sbin/**",
 				"sys/**",
+				"sysroot/**",
 				"tmp/**",
 				"usr/bin/**",
 				"usr/sbin/**",
@@ -293,6 +305,7 @@ func TrivyOptionsAll() trivyartifact.Option {
 				"var/lib/containerd/**",
 				"var/lib/containers/**",
 				"var/lib/docker/**",
+				"var/lib/kubelet/pods/**",
 				"var/lib/libvirt/**",
 				"var/lib/snapd/**",
 				"var/log/**",
@@ -300,6 +313,7 @@ func TrivyOptionsAll() trivyartifact.Option {
 				"var/tmp/**",
 			}, trivyDefaultSkipDirs...),
 		},
+		PostAnalyzerTimeout: time.Duration(4 * time.Minute),
 	}
 }
 
@@ -349,15 +363,16 @@ func doTrivyScan(ctx context.Context, trivyArtifact trivyartifact.Artifact, triv
 		PkgTypes:            trivytypes.PkgTypes,
 		PkgRelationships:    ftypes.Relationships,
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		return nil, fmt.Errorf("trivy scan failed: %w", err)
 	}
+	err1 := err
 	marshaler := cyclonedx.NewMarshaler("")
 	cyclonedxBOM, err := marshaler.MarshalReport(ctx, trivyReport)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal report to sbom format: %w", err)
 	}
-	return cyclonedxBOM, nil
+	return cyclonedxBOM, err1
 }
 
 func rootFiles(root string, files []string) []string {
