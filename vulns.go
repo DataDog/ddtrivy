@@ -184,6 +184,9 @@ var trivyAnalyzersAll = []analyzer.Type{
 	analyzer.TypeRedHatDockerfileType,
 }
 
+var osAnalyzers []analyzer.Type
+var osAnalyzersOnce sync.Once
+
 func getTrivyDisabledAnalyzers(allowedAnalyzers []analyzer.Type) []analyzer.Type {
 	var disabledAnalyzers []analyzer.Type
 
@@ -272,7 +275,7 @@ func getArtifactOption(analyzers []analyzer.Type, parallel int) artifact.Option 
 
 	option.WalkerOption.SkipDirs = trivyDefaultSkipDirs
 
-	if looselyCompareAnalyzers(analyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)) {
+	if looselyCompareAnalyzers(analyzers, getOSAnalyzers()) {
 		option.WalkerOption.OnlyDirs = osPkgDirs
 	} else {
 		option.WalkerOption.SkipDirs = append(
@@ -307,20 +310,23 @@ func getArtifactOption(analyzers []analyzer.Type, parallel int) artifact.Option 
 	return option
 }
 
-func TrivyOptionsOS(parallel int) trivyartifact.Option {
-	var allowedAnalyzers []analyzer.Type
-	allowedAnalyzers = append(allowedAnalyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)...)
-	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeRedHatContentManifestType)
+func getOSAnalyzers() []analyzer.Type {
+	osAnalyzersOnce.Do(func() {
+		osAnalyzers = excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)
+		osAnalyzers = append(osAnalyzers, analyzer.TypeRedHatContentManifestType)
+	})
+	return osAnalyzers
+}
 
-	return getArtifactOption(allowedAnalyzers, parallel)
+func TrivyOptionsOS(parallel int) trivyartifact.Option {
+	return getArtifactOption(getOSAnalyzers(), parallel)
 }
 
 // TrivyOptionsAllForHosts returns the default options for trivy to scan applications
 // on possibly big hosts root filesystems.
 func TrivyOptionsAllForHosts(parallel int) trivyartifact.Option {
 	var allowedAnalyzers []analyzer.Type
-	allowedAnalyzers = append(allowedAnalyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)...)
-	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeRedHatContentManifestType)
+	allowedAnalyzers = append(allowedAnalyzers, getOSAnalyzers()...)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeIndividualPkgs...)
 	// Enables the executable analyzer to retrieve version for java, nodejs, php and python interpreters.
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeExecutable)
@@ -343,8 +349,7 @@ func TrivyOptionsAll(parallel int) trivyartifact.Option {
 	//
 	// We remove specifically analyzer.TypeDpkgLicense included in TypeOSes from the list of
 	// allowed analyzers to avoid license scanning.
-	allowedAnalyzers = append(allowedAnalyzers, excludeTrivyAnalyzer(analyzer.TypeOSes, analyzer.TypeDpkgLicense)...)
-	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeRedHatContentManifestType)
+	allowedAnalyzers = append(allowedAnalyzers, getOSAnalyzers()...)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeLanguages...)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeLockfiles...)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeIndividualPkgs...)

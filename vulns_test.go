@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDisablesAnalyzersIsComplete(t *testing.T) {
@@ -101,4 +102,9 @@ func TestDisablesAnalyzersIsComplete(t *testing.T) {
 	if len(set) != 76 {
 		t.Fatalf("missing analyzer: expected 76 got %d", len(set))
 	}
+}
+
+func TestFastOSScan(t *testing.T) {
+	options := TrivyOptionsOS(1)
+	assert.Equal(t, options.WalkerOption.OnlyDirs, osPkgDirs)
 }

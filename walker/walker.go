@@ -91,10 +91,10 @@ func (w *FSWalker) walkDirFunc(ctx context.Context, root *os.Root, fn walker.Wal
 		switch {
 		case d.IsDir():
 			if utils.SkipPath(filePath, opt.SkipDirs) {
-				return filepath.SkipDir
+				return fs.SkipDir
 			}
 			if utils.OnlyPath(filePath, opt.OnlyDirs) {
-				return filepath.SkipDir
+				return fs.SkipDir
 			}
 			return nil
 		case !opt.AllFiles && !d.Type().IsRegular():
