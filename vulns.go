@@ -259,7 +259,6 @@ func looselyCompareAnalyzers(given []analyzer.Type, against []analyzer.Type) boo
 func getArtifactOption(analyzers []analyzer.Type, parallel int) artifact.Option {
 	option := trivyartifact.Option{
 		Offline:           true,
-		OfflineJar:        true,
 		NoProgress:        true,
 		DisabledAnalyzers: getTrivyDisabledAnalyzers(analyzers),
 		Parallel:          parallel,
