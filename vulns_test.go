@@ -108,3 +108,53 @@ func TestFastOSScan(t *testing.T) {
 	options := TrivyOptionsOS(1)
 	assert.Equal(t, options.WalkerOption.OnlyDirs, osPkgDirs)
 }
+
+func TestLooselyCompareAnalyzers(t *testing.T) {
+	entries := []struct {
+		name     string
+		given    []analyzer.Type
+		against  []analyzer.Type
+		expected bool
+	}{
+		{
+			name:     "empty lists",
+			expected: true,
+		},
+		{
+			name:     "os simple",
+			given:    []analyzer.Type{"os"},
+			against:  []analyzer.Type{"os"},
+			expected: true,
+		},
+		{
+			name:     "os duplicated",
+			given:    []analyzer.Type{"os", "os"},
+			against:  []analyzer.Type{"os"},
+			expected: true,
+		},
+		{
+			name:     "os wrong",
+			given:    []analyzer.Type{"languages"},
+			against:  []analyzer.Type{"os"},
+			expected: false,
+		},
+		{
+			name:     "languages and os",
+			given:    []analyzer.Type{"os", "languages"},
+			against:  []analyzer.Type{"os", "languages"},
+			expected: true,
+		},
+		{
+			name:     "languages and os 2",
+			given:    []analyzer.Type{"languages", "os"},
+			against:  []analyzer.Type{"os", "languages"},
+			expected: true,
+		},
+	}
+
+	for _, entry := range entries {
+		t.Run(entry.name, func(t *testing.T) {
+			assert.Equal(t, entry.expected, looselyCompareAnalyzers(entry.given, entry.against))
+		})
+	}
+}
