@@ -264,6 +264,7 @@ func getArtifactOption(analyzers []analyzer.Type, parallel int) artifact.Option 
 		Parallel:          parallel,
 		SBOMSources:       []string{},
 		DisabledHandlers:  []ftypes.HandlerType{ftypes.UnpackagedPostHandler},
+		FileChecksumJar:   true,
 		WalkerOption: walker.Option{
 			ErrorCallback: errorCallback,
 			SkipDirs:      trivyDefaultSkipDirs,
