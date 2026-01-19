@@ -10,7 +10,7 @@ require (
 	github.com/aquasecurity/trivy-java-db v0.0.0-20250520062418-66df85428c9e
 	github.com/google/go-containerregistry v0.20.7
 	github.com/samber/lo v1.52.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/exp v0.0.0-20250531010427-b6e5de432a8b
 	golang.org/x/xerrors v0.0.0-20240716161551-93cc26a95ae9
 )
