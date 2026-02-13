@@ -1,6 +1,6 @@
 module github.com/DataDog/ddtrivy
 
-go 1.24.0
+go 1.25.7
 
 replace github.com/aquasecurity/trivy => github.com/DataDog/trivy v0.0.0-20251219103134-5ad663ab1028
 
