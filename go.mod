@@ -5,7 +5,7 @@ go 1.24.0
 replace github.com/aquasecurity/trivy => github.com/DataDog/trivy v0.0.0-20251219103134-5ad663ab1028
 
 require (
-	github.com/aquasecurity/trivy v0.63.0
+	github.com/aquasecurity/trivy v0.69.1
 	github.com/aquasecurity/trivy-db v0.0.0-20250604074528-8a8d6e3cc002
 	github.com/aquasecurity/trivy-java-db v0.0.0-20250520062418-66df85428c9e
 	github.com/google/go-containerregistry v0.20.7
