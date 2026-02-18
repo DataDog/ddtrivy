@@ -34,6 +34,7 @@ func TestDisablesAnalyzersIsComplete(t *testing.T) {
 			analyzer.TypeSUSE,
 			analyzer.TypeUbuntu,
 			analyzer.TypeUbuntuESM,
+			analyzer.TypeCoreOS,
 			analyzer.TypeApk,
 			analyzer.TypeBottlerocketInventory,
 			analyzer.TypeDpkg,
@@ -54,6 +55,7 @@ func TestDisablesAnalyzersIsComplete(t *testing.T) {
 			analyzer.TypeNodePkg,
 			analyzer.TypeYarn,
 			analyzer.TypePnpm,
+			analyzer.TypeBun,
 			analyzer.TypeNuget,
 			analyzer.TypeDotNetCore,
 			analyzer.TypePackagesProps,
@@ -85,6 +87,7 @@ func TestDisablesAnalyzersIsComplete(t *testing.T) {
 			analyzer.TypeTerraformPlanSnapshot,
 			analyzer.TypeYAML,
 			analyzer.TypeJSON,
+			analyzer.TypeAnsible,
 			analyzer.TypeExecutable,
 			analyzer.TypeSBOM,
 			analyzer.TypeApkCommand,
@@ -99,8 +102,8 @@ func TestDisablesAnalyzersIsComplete(t *testing.T) {
 			t.Fatalf("unexpected analyzer %s", a)
 		}
 	}
-	if len(set) != 76 {
-		t.Fatalf("missing analyzer: expected 76 got %d", len(set))
+	if len(set) != 79 {
+		t.Fatalf("missing analyzer: expected 79 got %d", len(set))
 	}
 }
 
