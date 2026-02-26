@@ -32,10 +32,10 @@ import (
 	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/fanal/walker"
 	"github.com/aquasecurity/trivy/pkg/javadb"
-	trivyscanner "github.com/aquasecurity/trivy/pkg/scanner"
-	"github.com/aquasecurity/trivy/pkg/scanner/langpkg"
-	"github.com/aquasecurity/trivy/pkg/scanner/local"
-	"github.com/aquasecurity/trivy/pkg/scanner/ospkg"
+	trivyscanner "github.com/aquasecurity/trivy/pkg/scan"
+	"github.com/aquasecurity/trivy/pkg/scan/langpkg"
+	"github.com/aquasecurity/trivy/pkg/scan/local"
+	"github.com/aquasecurity/trivy/pkg/scan/ospkg"
 	trivytypes "github.com/aquasecurity/trivy/pkg/types"
 	"github.com/aquasecurity/trivy/pkg/vulnerability"
 
@@ -110,6 +110,7 @@ var trivyAnalyzersAll = []analyzer.Type{
 	analyzer.TypeFedora,
 	analyzer.TypeOracle,
 	analyzer.TypeRedHatBase,
+	analyzer.TypeCoreOS,
 	// TypeOSes
 	analyzer.TypeSUSE,
 	analyzer.TypeUbuntu,
@@ -135,6 +136,7 @@ var trivyAnalyzersAll = []analyzer.Type{
 	analyzer.TypeNodePkg,
 	analyzer.TypeYarn,
 	analyzer.TypePnpm,
+	analyzer.TypeBun,
 	analyzer.TypeNuget,
 	analyzer.TypeDotNetCore,
 	analyzer.TypePackagesProps,
@@ -168,6 +170,7 @@ var trivyAnalyzersAll = []analyzer.Type{
 	analyzer.TypeTerraformPlanSnapshot,
 	analyzer.TypeYAML,
 	analyzer.TypeJSON,
+	analyzer.TypeAnsible,
 	// Non-packaged
 	analyzer.TypeExecutable,
 	analyzer.TypeSBOM,
@@ -276,7 +279,14 @@ func getArtifactOption(analyzers []analyzer.Type, parallel int) artifact.Option 
 	option.WalkerOption.SkipDirs = trivyDefaultSkipDirs
 
 	if looselyCompareAnalyzers(analyzers, getOSAnalyzers()) {
-		option.WalkerOption.OnlyDirs = osPkgDirs
+		// Don't set option.WalkerOption.OnlyDirs since it's redundant with StaticPaths.
+		// OS-only: all OS analyzers implement StaticPathAnalyzer, so Trivy
+		// uses the StaticPaths code path. Each analyzer declares exactly
+		// which directories to walk, making OnlyDirs redundant. OnlyDirs
+		// must NOT be set here because it is incompatible with StaticPaths:
+		// the walker resolves OnlyDirs patterns relative to each static
+		// path subdirectory, producing invalid patterns that cause files
+		// to be skipped.
 	} else {
 		option.WalkerOption.SkipDirs = append(
 			option.WalkerOption.SkipDirs,
@@ -318,12 +328,19 @@ func getOSAnalyzers() []analyzer.Type {
 	return osAnalyzers
 }
 
+// TrivyOptionsOS returns the default options for trivy to scan OS packages.
+// See the comment in getArtifactOption for why OnlyDirs is not set.
 func TrivyOptionsOS(parallel int) trivyartifact.Option {
 	return getArtifactOption(getOSAnalyzers(), parallel)
 }
 
-// TrivyOptionsAllForHosts returns the default options for trivy to scan applications
-// on possibly big hosts root filesystems.
+// TrivyOptionsAllForHosts returns the default options for trivy to scan
+// applications on possibly big hosts root filesystems.
+// Because TypeIndividualPkgs and TypeExecutable do not implement
+// StaticPathAnalyzer, Trivy falls back to full filesystem traversal.
+// OnlyDirs is required here to restrict the walker's scope: without it the
+// walker would traverse the entire filesystem. osPkgDirs must be included
+// so that the OS analyzers' directories are visited during the full traversal.
 func TrivyOptionsAllForHosts(parallel int) trivyartifact.Option {
 	var allowedAnalyzers []analyzer.Type
 	allowedAnalyzers = append(allowedAnalyzers, getOSAnalyzers()...)
@@ -332,7 +349,7 @@ func TrivyOptionsAllForHosts(parallel int) trivyartifact.Option {
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeExecutable)
 
 	artifactOption := getArtifactOption(allowedAnalyzers, parallel)
-	artifactOption.WalkerOption.OnlyDirs = append(artifactOption.WalkerOption.OnlyDirs,
+	artifactOption.WalkerOption.OnlyDirs = append(osPkgDirs,
 		"opt/**",
 		"usr/local/**",
 	)
@@ -361,7 +378,7 @@ func TrivyOptionsAll(parallel int) trivyartifact.Option {
 
 type artifactWithType struct {
 	inner     artifact.Artifact
-	forceType artifact.Type
+	forceType ftypes.ArtifactType
 }
 
 func (fa *artifactWithType) Inspect(ctx context.Context) (artifact.Reference, error) {
@@ -375,7 +392,7 @@ func (fa *artifactWithType) Clean(ref artifact.Reference) error {
 }
 
 // ScanRootFS launches a trivy scan on a root filesystems.
-func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache trivycache.Cache, rootFS string, artifactType trivyartifact.Type) (*trivytypes.Report, error) {
+func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache trivycache.Cache, rootFS string, artifactType ftypes.ArtifactType) (*trivytypes.Report, error) {
 	// NOTE: the trivy cache key calculated based on the artifact options will
 	// always be different because of this.
 	wo := &artifactOpts.WalkerOption
@@ -428,8 +445,8 @@ func doTrivyScan(ctx context.Context, trivyArtifact trivyartifact.Artifact, triv
 	trivyLangScanner := langpkg.NewScanner()
 	trivyVulnClient := vulnerability.NewClient(db.Config{})
 	trivyApplier := applier.NewApplier(trivyCache)
-	trivyLocalScanner := local.NewScanner(trivyApplier, trivyOSScanner, trivyLangScanner, trivyVulnClient)
-	trivyScanner := trivyscanner.NewScanner(trivyLocalScanner, trivyArtifact)
+	trivyLocalScanner := local.NewService(trivyApplier, trivyOSScanner, trivyLangScanner, trivyVulnClient)
+	trivyScanner := trivyscanner.NewService(trivyLocalScanner, trivyArtifact)
 
 	trivyReport, err := trivyScanner.ScanArtifact(ctx, trivytypes.ScanOptions{
 		Scanners:            trivytypes.Scanners{trivytypes.SBOMScanner},
