@@ -2,10 +2,10 @@ module github.com/DataDog/ddtrivy
 
 go 1.25.6
 
-replace github.com/aquasecurity/trivy => github.com/DataDog/trivy v0.0.0-20260223152445-a9b26703ce6a
+replace github.com/aquasecurity/trivy => github.com/DataDog/trivy v0.0.0-20260513095541-82b34c058aad
 
 require (
-	github.com/aquasecurity/trivy v0.63.0
+	github.com/aquasecurity/trivy v0.69.1
 	github.com/aquasecurity/trivy-db v0.0.0-20251222105351-a833f47f8f0d
 	github.com/aquasecurity/trivy-java-db v0.0.0-20250520062418-66df85428c9e
 	github.com/google/go-containerregistry v0.20.7

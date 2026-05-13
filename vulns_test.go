@@ -109,7 +109,7 @@ func TestDisablesAnalyzersIsComplete(t *testing.T) {
 
 func TestFastOSScan(t *testing.T) {
 	options := TrivyOptionsOS(1)
-	assert.Equal(t, options.WalkerOption.OnlyDirs, osPkgDirs)
+	assert.Nil(t, options.WalkerOption.OnlyDirs)
 }
 
 func TestLooselyCompareAnalyzers(t *testing.T) {
