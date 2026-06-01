@@ -359,6 +359,20 @@ func TrivyOptionsAll(parallel int) trivyartifact.Option {
 	return getArtifactOption(allowedAnalyzers, parallel)
 }
 
+// trivyOptionsApps returns options for the application phase of ScanHostFS: a
+// full filesystem walk with the OS analyzers off, so the walker's skip set can
+// drop every package-owned file.
+func trivyOptionsApps(parallel int) trivyartifact.Option {
+	var allowedAnalyzers []analyzer.Type
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeLanguages...)
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeLockfiles...)
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeIndividualPkgs...)
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeExecutable)
+	// Omitting the OS analyzers disables them; getArtifactOption derives
+	// DisabledAnalyzers from this allow-list.
+	return getArtifactOption(allowedAnalyzers, parallel)
+}
+
 type artifactWithType struct {
 	inner     artifact.Artifact
 	forceType artifact.Type
@@ -376,14 +390,17 @@ func (fa *artifactWithType) Clean(ref artifact.Reference) error {
 
 // ScanRootFS launches a trivy scan on a root filesystems.
 func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache trivycache.Cache, rootFS string, artifactType trivyartifact.Type) (*trivytypes.Report, error) {
+	return scanRootFS(ctx, artifactOpts, trivyCache, rootFS, artifactType, fswalker.NewFSWalker())
+}
+
+func scanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache trivycache.Cache, rootFS string, artifactType trivyartifact.Type, w *fswalker.FSWalker) (*trivytypes.Report, error) {
 	// NOTE: the trivy cache key calculated based on the artifact options will
 	// always be different because of this.
 	wo := &artifactOpts.WalkerOption
 	wo.OnlyDirs = rootFiles(rootFS, wo.OnlyDirs)
 	wo.SkipDirs = rootFiles(rootFS, wo.SkipDirs)
 	wo.SkipFiles = rootFiles(rootFS, wo.SkipFiles)
-	fs := fswalker.NewFSWalker()
-	trivyArtifact, err := trivyartifactlocal.NewArtifact(rootFS, trivyCache, fs, artifactOpts)
+	trivyArtifact, err := trivyartifactlocal.NewArtifact(rootFS, trivyCache, w, artifactOpts)
 	if err != nil {
 		return nil, fmt.Errorf("could not create local trivy artifact: %w", err)
 	}
@@ -399,6 +416,54 @@ func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache tr
 	}
 
 	return trivyReport, err
+}
+
+// ScanHostFS scans a host root filesystem in two phases. Phase 1 scans OS
+// packages (cheap: TrivyOptionsOS scopes the walk to the package databases) and
+// records the files they own. Phase 2 scans the rest of the filesystem for
+// application packages but skips those files, so only unpackaged software is
+// opened. The OS analyzers are off in phase 2 so the skip set may include the
+// package databases themselves without starving phase 1.
+func ScanHostFS(ctx context.Context, trivyCache trivycache.Cache, rootFS string, parallel int) (*trivytypes.Report, error) {
+	osReport, err := ScanRootFS(ctx, TrivyOptionsOS(parallel), trivyCache, rootFS, trivyartifact.TypeFilesystem)
+	if err != nil {
+		return nil, fmt.Errorf("host OS scan failed: %w", err)
+	}
+
+	installed := collectInstalledFiles(osReport)
+
+	appsReport, err := scanRootFS(ctx, trivyOptionsApps(parallel), trivyCache, rootFS, trivyartifact.TypeFilesystem, fswalker.NewFSWalkerWithInstalledFiles(installed))
+	if err != nil {
+		return nil, fmt.Errorf("host application scan failed: %w", err)
+	}
+
+	return mergeReports(osReport, appsReport), nil
+}
+
+// collectInstalledFiles returns the package-owned files in report, keyed in the
+// walker's path form (root-relative, no leading "/"). Packages without recorded
+// files (e.g. third-party) contribute nothing, so their files are still scanned.
+func collectInstalledFiles(report *trivytypes.Report) map[string]struct{} {
+	installed := make(map[string]struct{})
+	for _, result := range report.Results {
+		for _, pkg := range result.Packages {
+			for _, f := range pkg.InstalledFiles {
+				installed[strings.TrimPrefix(filepath.ToSlash(f), "/")] = struct{}{}
+			}
+		}
+	}
+	return installed
+}
+
+// mergeReports concatenates the two phases' Results onto the OS report, which
+// keeps its OS metadata (phase 2 produces none).
+func mergeReports(osReport, appsReport *trivytypes.Report) *trivytypes.Report {
+	merged := *osReport
+	results := make(trivytypes.Results, 0, len(osReport.Results)+len(appsReport.Results))
+	results = append(results, osReport.Results...)
+	results = append(results, appsReport.Results...)
+	merged.Results = results
+	return &merged
 }
 
 // ScanOverlays launches a trivy scan on a local filesystem represened by a set of overlays.

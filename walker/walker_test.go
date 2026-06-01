@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -93,4 +94,36 @@ func TestFS_Walk(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestFS_Walk_SkipInstalledFiles(t *testing.T) {
+	const owned = "usr/lib64/libowned.so"
+	const unowned = "opt/app/unowned"
+
+	root := t.TempDir()
+	for _, rel := range []string{owned, unowned} {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+		require.NoError(t, os.WriteFile(full, []byte("x"), 0o755)) // exec bit, like a real .so/binary
+	}
+
+	visit := func(skip map[string]struct{}) map[string]bool {
+		visited := map[string]bool{}
+		err := NewFSWalkerWithInstalledFiles(skip).Walk(context.TODO(), root, walker.Option{}, func(_ context.Context, filePath string, _ os.FileInfo, _ analyzer.Opener) error {
+			visited[filePath] = true
+			return nil
+		})
+		require.NoError(t, err)
+		return visited
+	}
+
+	// A listed file is skipped before analysis; an unlisted one is still visited.
+	got := visit(map[string]struct{}{owned: {}})
+	assert.False(t, got[owned], "listed file must be skipped")
+	assert.True(t, got[unowned], "unlisted file must be visited")
+
+	// Keys are matched root-relative: a leading "/" must not match, so the file
+	// is visited (which also confirms it is otherwise reachable).
+	leading := visit(map[string]struct{}{"/" + owned: {}})
+	assert.True(t, leading[owned], "leading-slash key must not match the walk path")
 }

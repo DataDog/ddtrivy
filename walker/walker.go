@@ -30,11 +30,22 @@ var defaultSkipDirs = []string{
 }
 
 // FSWalker is the filesystem walker used for SBOM generation
-type FSWalker struct{}
+type FSWalker struct {
+	// skipFiles holds paths to skip before opening, keyed root-relative with no
+	// leading "/" and matched directly (not via cleanSkipPaths like the glob
+	// lists). nil keeps NewFSWalker behavior.
+	skipFiles map[string]struct{}
+}
 
 // NewFSWalker returns a new filesystem walker
 func NewFSWalker() *FSWalker {
 	return &FSWalker{}
+}
+
+// NewFSWalkerWithInstalledFiles returns a walker that skips the given paths
+// before opening them. Keys must be root-relative, with no leading "/".
+func NewFSWalkerWithInstalledFiles(skipFiles map[string]struct{}) *FSWalker {
+	return &FSWalker{skipFiles: skipFiles}
 }
 
 func cleanSkipPaths(root string, skipPaths []string) []string {
@@ -86,6 +97,13 @@ func (w *FSWalker) walkDirFunc(ctx context.Context, root *os.Root, fn walker.Wal
 		}
 
 		filePath = filepath.ToSlash(filePath)
+
+		// Skip listed files before opening; keep descending into directories.
+		if !d.IsDir() {
+			if _, ok := w.skipFiles[filePath]; ok {
+				return nil
+			}
+		}
 
 		// Skip unnecessary files
 		switch {

@@ -9,7 +9,10 @@ import (
 	"testing"
 
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
+	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
+	trivytypes "github.com/aquasecurity/trivy/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDisablesAnalyzersIsComplete(t *testing.T) {
@@ -157,4 +160,56 @@ func TestLooselyCompareAnalyzers(t *testing.T) {
 			assert.Equal(t, entry.expected, looselyCompareAnalyzers(entry.given, entry.against))
 		})
 	}
+}
+
+func TestTrivyOptionsAppsDisablesOSAnalyzers(t *testing.T) {
+	opt := trivyOptionsApps(1)
+	disabled := make(map[analyzer.Type]struct{}, len(opt.DisabledAnalyzers))
+	for _, a := range opt.DisabledAnalyzers {
+		disabled[a] = struct{}{}
+	}
+	// The apps phase must run with OS analyzers off (so ScanHostFS's skip set
+	// can drop package files) and the executable analyzer on (the costly one
+	// the skip set spares from re-scanning every binary), over the whole tree.
+	for _, a := range getOSAnalyzers() {
+		assert.Containsf(t, disabled, a, "OS analyzer %q must be disabled", a)
+	}
+	assert.NotContains(t, disabled, analyzer.TypeExecutable, "executable analyzer must stay enabled")
+	assert.Empty(t, opt.WalkerOption.OnlyDirs, "apps phase must walk the whole tree")
+}
+
+func TestCollectInstalledFiles(t *testing.T) {
+	report := &trivytypes.Report{
+		Results: trivytypes.Results{
+			{
+				Packages: []ftypes.Package{
+					{Name: "glibc", InstalledFiles: []string{"/usr/lib64/libc.so.6", "/usr/bin/ldd"}},
+					{Name: "rel", InstalledFiles: []string{"var/lib/already-relative"}},
+					{Name: "thirdparty"}, // no InstalledFiles -> contributes nothing
+				},
+			},
+		},
+	}
+	assert.Equal(t, map[string]struct{}{
+		"usr/lib64/libc.so.6":      {},
+		"usr/bin/ldd":              {},
+		"var/lib/already-relative": {},
+	}, collectInstalledFiles(report))
+}
+
+func TestMergeReports(t *testing.T) {
+	osPtr := &ftypes.OS{}
+	osReport := &trivytypes.Report{
+		Metadata: trivytypes.Metadata{OS: osPtr},
+		Results:  trivytypes.Results{{Target: "os", Class: trivytypes.ClassOSPkg}},
+	}
+	appsReport := &trivytypes.Report{
+		Results: trivytypes.Results{{Target: "apps", Class: trivytypes.ClassLangPkg}},
+	}
+
+	merged := mergeReports(osReport, appsReport)
+	require.Len(t, merged.Results, 2)
+	assert.Equal(t, trivytypes.ClassOSPkg, merged.Results[0].Class)
+	assert.Equal(t, trivytypes.ClassLangPkg, merged.Results[1].Class)
+	assert.Same(t, osPtr, merged.Metadata.OS, "phase-1 OS metadata must be preserved")
 }
