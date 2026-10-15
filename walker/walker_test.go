@@ -94,3 +94,50 @@ func TestFS_Walk(t *testing.T) {
 		})
 	}
 }
+
+func TestFS_WalkContextDone(t *testing.T) {
+	tests := []struct {
+		name       string
+		rootDir    string
+		option     walker.Option
+		cancelled  bool
+		wantVisits int
+	}{
+		{
+			name:       "directory",
+			rootDir:    "testdata/fs",
+			wantVisits: 1,
+		},
+		{
+			name:    "directory with lenient error callback",
+			rootDir: "testdata/fs",
+			option: walker.Option{
+				ErrorCallback: func(string, error) error { return nil },
+			},
+			wantVisits: 1,
+		},
+		{
+			name:      "single file",
+			rootDir:   "testdata/fs/bar",
+			cancelled: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tt.cancelled {
+				cancel()
+			}
+
+			visits := 0
+			err := NewFSWalker().Walk(ctx, tt.rootDir, tt.option, func(context.Context, string, os.FileInfo, analyzer.Opener) error {
+				visits++
+				cancel()
+				return nil
+			})
+			require.ErrorIs(t, err, context.Canceled)
+			assert.Equal(t, tt.wantVisits, visits)
+		})
+	}
+}

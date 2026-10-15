@@ -89,6 +89,12 @@ func (w *FSWalker) Walk(ctx context.Context, rootPath string, opt walker.Option,
 }
 
 func (w *FSWalker) walkFile(ctx context.Context, path string, info os.FileInfo, opt walker.Option, fn walker.WalkFunc) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	if !info.Mode().IsRegular() {
 		return nil
 	}
@@ -116,6 +122,14 @@ func (w *FSWalker) walkFile(ctx context.Context, path string, info os.FileInfo, 
 // each file or directory.
 func (w *FSWalker) walkDirFunc(ctx context.Context, root *os.Root, fn walker.WalkFunc, opt walker.Option) fs.WalkDirFunc {
 	return func(filePath string, d fs.DirEntry, err error) error {
+		// The analyzers check the context only for the files they read,
+		// so check it here to stop a walk through files no analyzer wants.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		if err != nil {
 			if errors.Is(err, fs.ErrPermission) || errors.Is(err, os.ErrNotExist) {
 				return nil
@@ -166,6 +180,9 @@ func (w *FSWalker) onError(wrapped fs.WalkDirFunc, opt walker.Option) fs.WalkDir
 		// Ignore permission errors
 		case os.IsPermission(err):
 			return nil
+		// Stop when the context is done, whatever the error callback says
+		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+			return xerrors.Errorf("stopped at %s: %w", filePath, err)
 		case err != nil:
 			if opt.ErrorCallback != nil {
 				err = opt.ErrorCallback(filePath, err)
