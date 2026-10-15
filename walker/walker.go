@@ -50,7 +50,21 @@ func cleanSkipPaths(root string, skipPaths []string) []string {
 }
 
 // Walk walks the filesystem rooted at root, calling fn for each unfiltered file.
+// Trivy's static-paths mechanism can invoke Walk with a regular file rather
+// than a directory; in that case the single file is analyzed directly.
 func (w *FSWalker) Walk(ctx context.Context, rootPath string, opt walker.Option, fn walker.WalkFunc) error {
+	info, err := os.Stat(rootPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return xerrors.Errorf("failed to stat root %s: %w", rootPath, err)
+	}
+
+	if !info.IsDir() {
+		return w.walkFile(ctx, rootPath, info, opt, fn)
+	}
+
 	opt.SkipDirs = append(opt.SkipDirs, defaultSkipDirs...)
 
 	opt.SkipDirs = cleanSkipPaths(rootPath, opt.SkipDirs)
@@ -74,10 +88,48 @@ func (w *FSWalker) Walk(ctx context.Context, rootPath string, opt walker.Option,
 	return nil
 }
 
+func (w *FSWalker) walkFile(ctx context.Context, path string, info os.FileInfo, opt walker.Option, fn walker.WalkFunc) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+
+	// Match upstream Trivy semantics: for a single-file root, filepath.Rel(root, root)
+	// returns "." and that is what gets passed through to the analyzer.
+	const relPath = "."
+
+	opener := func() (xio.ReadSeekCloserAt, error) {
+		return os.Open(path)
+	}
+
+	if err := fn(ctx, relPath, info, opener); err != nil {
+		if opt.ErrorCallback != nil {
+			if cberr := opt.ErrorCallback(relPath, err); cberr == nil {
+				return nil
+			}
+		}
+		return xerrors.Errorf("failed to analyze file: %w", err)
+	}
+	return nil
+}
+
 // walkDirFunc is the type of the function called by [WalkDir] to visit
 // each file or directory.
 func (w *FSWalker) walkDirFunc(ctx context.Context, root *os.Root, fn walker.WalkFunc, opt walker.Option) fs.WalkDirFunc {
 	return func(filePath string, d fs.DirEntry, err error) error {
+		// The analyzers check the context only for the files they read,
+		// so check it here to stop a walk through files no analyzer wants.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		if err != nil {
 			if errors.Is(err, fs.ErrPermission) || errors.Is(err, os.ErrNotExist) {
 				return nil
@@ -128,6 +180,9 @@ func (w *FSWalker) onError(wrapped fs.WalkDirFunc, opt walker.Option) fs.WalkDir
 		// Ignore permission errors
 		case os.IsPermission(err):
 			return nil
+		// Stop when the context is done, whatever the error callback says
+		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+			return xerrors.Errorf("stopped at %s: %w", filePath, err)
 		case err != nil:
 			if opt.ErrorCallback != nil {
 				err = opt.ErrorCallback(filePath, err)
