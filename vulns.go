@@ -309,6 +309,7 @@ func getArtifactOption(analyzers []analyzer.Type, parallel int) artifact.Option 
 			"var/lib/docker/**",
 			"var/lib/kubelet/pods/**",
 			"var/lib/kubelet/plugins/**/globalmount/**",
+			"var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices/**",
 			"var/lib/libvirt/**",
 			"var/lib/snapd/**",
 			"var/log/**",
