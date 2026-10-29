@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"golang.org/x/xerrors"
 
@@ -76,6 +77,12 @@ func (w *FSWalker) Walk(ctx context.Context, rootPath string, opt walker.Option,
 		return xerrors.Errorf("failed to open root %s: %w", rootPath, err)
 	}
 	defer root.Close()
+
+	prefetchCtx, cancel := context.WithCancel(ctx)
+	var prefetched sync.WaitGroup
+	prefetched.Go(func() { walker.Prefetch(prefetchCtx, root.FS(), opt, walker.PrefetchWorkers) })
+	defer prefetched.Wait()
+	defer cancel()
 
 	walkDirFunc := w.walkDirFunc(ctx, root, fn, opt)
 	walkDirFunc = w.onError(walkDirFunc, opt)
