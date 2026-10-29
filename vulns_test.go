@@ -6,10 +6,16 @@
 package ddtrivy
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	fswalker "github.com/DataDog/ddtrivy/walker"
 )
 
 func TestDisablesAnalyzersIsComplete(t *testing.T) {
@@ -160,4 +166,31 @@ func TestLooselyCompareAnalyzers(t *testing.T) {
 			assert.Equal(t, entry.expected, looselyCompareAnalyzers(entry.given, entry.against))
 		})
 	}
+}
+
+// The kubelet stages raw block volumes under volumeDevices, as device
+// nodes or as files a device is bind mounted on, which go away when the
+// volume detaches.
+func TestTrivyOptionsAllSkipsVolumeDevices(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{
+		"opt/app/package.json",
+		"var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices/pvc-1/dev/7ab689dc",
+	} {
+		p := filepath.Join(root, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte("{}"), 0o755))
+	}
+
+	wo := TrivyOptionsAll(1).WalkerOption
+	wo.OnlyDirs = rootFiles(root, wo.OnlyDirs)
+	wo.SkipDirs = rootFiles(root, wo.SkipDirs)
+	wo.SkipFiles = rootFiles(root, wo.SkipFiles)
+	var got []string
+	err := fswalker.NewFSWalker().Walk(context.Background(), root, wo, func(_ context.Context, p string, _ os.FileInfo, _ analyzer.Opener) error {
+		got = append(got, p)
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"opt/app/package.json"}, got)
 }
