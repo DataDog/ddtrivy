@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	trivycache "github.com/aquasecurity/trivy/pkg/cache"
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
+	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -193,4 +195,47 @@ func TestTrivyOptionsAllSkipsVolumeDevices(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"opt/app/package.json"}, got)
+}
+
+// deadlineAnalyzer fails as a post analyzer does when its
+// PostAnalyzerTimeout ends it.
+type deadlineAnalyzer struct{}
+
+func (deadlineAnalyzer) Type() analyzer.Type                      { return "deadline" }
+func (deadlineAnalyzer) Version() int                             { return 1 }
+func (deadlineAnalyzer) Required(path string, _ os.FileInfo) bool { return path == "deadline" }
+
+func (deadlineAnalyzer) PostAnalyze(context.Context, analyzer.PostAnalysisInput) (*analyzer.AnalysisResult, error) {
+	return nil, context.DeadlineExceeded
+}
+
+func init() {
+	analyzer.RegisterPostAnalyzer("deadline", func(analyzer.AnalyzerOptions) (analyzer.PostAnalyzer, error) {
+		return deadlineAnalyzer{}, nil
+	})
+}
+
+// A scan that runs out of time after its walk keeps the packages it found.
+func TestScanRootFSPartialReport(t *testing.T) {
+	root := t.TempDir()
+	for name, data := range map[string]string{
+		"etc/alpine-release":   "3.20.3\n",
+		"lib/apk/db/installed": "P:musl\nV:1.2.5-r0\nA:x86_64\n\n",
+		"deadline":             "\n",
+	} {
+		p := filepath.Join(root, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(data), 0o644))
+	}
+
+	report, err := ScanRootFS(context.Background(), TrivyOptionsAll(1), trivycache.NewMemoryCache(), root, ftypes.TypeFilesystem)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.NotNil(t, report)
+	var pkgs []string
+	for _, r := range report.Results {
+		for _, p := range r.Packages {
+			pkgs = append(pkgs, p.Name+"@"+p.Version)
+		}
+	}
+	assert.Equal(t, []string{"musl@1.2.5-r0"}, pkgs)
 }
