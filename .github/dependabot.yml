@@ -9,3 +9,5 @@ updates:
     ignore:
       - dependency-name: github.com/aquasecurity/trivy*
       - dependency-name: github.com/DataDog/trivy
+    cooldown:
+      default-days: 2
