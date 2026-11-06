@@ -392,7 +392,9 @@ func (fa *artifactWithType) Clean(ref artifact.Reference) error {
 	return fa.inner.Clean(ref)
 }
 
-// ScanRootFS launches a trivy scan on a root filesystems.
+// ScanRootFS launches a trivy scan on a root filesystems. When the scan runs
+// out of time after its walk, ScanRootFS returns the partial report with an
+// error wrapping context.DeadlineExceeded.
 func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache trivycache.Cache, rootFS string, artifactType ftypes.ArtifactType) (*trivytypes.Report, error) {
 	// NOTE: the trivy cache key calculated based on the artifact options will
 	// always be different because of this.
@@ -411,12 +413,7 @@ func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache tr
 		forceType: artifactType,
 	}
 
-	trivyReport, err := doTrivyScan(ctx, wrapper, trivyCache)
-	if err != nil {
-		return nil, fmt.Errorf("trivy scan failed: %w", err)
-	}
-
-	return trivyReport, err
+	return doTrivyScan(ctx, wrapper, trivyCache)
 }
 
 // ScanOverlays launches a trivy scan on a local filesystem represened by a set of overlays.
@@ -427,14 +424,12 @@ func ScanOverlays(ctx context.Context, artifactOpts trivyartifact.Option, trivyC
 		return nil, fmt.Errorf("unable to create artifact from fs: %w", err)
 	}
 
-	trivyReport, err := doTrivyScan(ctx, trivyArtifact, trivyCache)
-	if err != nil {
-		return nil, fmt.Errorf("trivy scan failed: %w", err)
-	}
-
-	return trivyReport, nil
+	return doTrivyScan(ctx, trivyArtifact, trivyCache)
 }
 
+// doTrivyScan scans trivyArtifact. When the scan runs out of time after it
+// analyzed the artifact, doTrivyScan returns the partial report with an error
+// wrapping context.DeadlineExceeded.
 func doTrivyScan(ctx context.Context, trivyArtifact trivyartifact.Artifact, trivyCache trivycache.LocalArtifactCache) (*trivytypes.Report, error) {
 	trivyInitOnce.Do(func() {
 		// Making sure the Unpackaged post handler relying on external DBs is
