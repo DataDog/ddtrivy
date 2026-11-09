@@ -98,6 +98,7 @@ var trivyAnalyzersAll = []analyzer.Type{
 	analyzer.TypeRpmArchive,
 	analyzer.TypeRpmqa,
 	analyzer.TypeApkRepo,
+	analyzer.TypeRapidFortCurated,
 	// TypeLanguages
 	analyzer.TypeBundler,
 	analyzer.TypeGemSpec,
@@ -123,6 +124,7 @@ var trivyAnalyzersAll = []analyzer.Type{
 	analyzer.TypePipenv,
 	analyzer.TypePoetry,
 	analyzer.TypeUv,
+	analyzer.TypePyLock,
 	analyzer.TypeGoBinary,
 	analyzer.TypeGoMod,
 	analyzer.TypeRustBinary,
@@ -157,6 +159,8 @@ var trivyAnalyzersAll = []analyzer.Type{
 	analyzer.TypeLicenseFile,
 	// Secrets
 	analyzer.TypeSecret,
+	// Cryptographic Assets
+	analyzer.TypeCrypto,
 	// Red Hat
 	analyzer.TypeRedHatContentManifestType,
 	analyzer.TypeRedHatDockerfileType,
