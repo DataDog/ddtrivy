@@ -103,6 +103,9 @@ func TestDisablesAnalyzersIsComplete(t *testing.T) {
 			analyzer.TypeImageConfigSecret,
 			analyzer.TypeLicenseFile,
 			analyzer.TypeSecret,
+			analyzer.TypeCrypto,
+			analyzer.TypeRapidFortCurated,
+			analyzer.TypePyLock,
 			analyzer.TypeRedHatContentManifestType,
 			analyzer.TypeRedHatDockerfileType:
 			set[a] = struct{}{}
@@ -110,8 +113,8 @@ func TestDisablesAnalyzersIsComplete(t *testing.T) {
 			t.Fatalf("unexpected analyzer %s", a)
 		}
 	}
-	if len(set) != 79 {
-		t.Fatalf("missing analyzer: expected 79 got %d", len(set))
+	if len(set) != 82 {
+		t.Fatalf("missing analyzer: expected 82 got %d", len(set))
 	}
 }
 
