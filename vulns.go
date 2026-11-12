@@ -413,7 +413,7 @@ func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache tr
 		forceType: artifactType,
 	}
 
-	return doTrivyScan(ctx, wrapper, trivyCache)
+	return Scan(ctx, wrapper, trivyCache)
 }
 
 // ScanOverlays launches a trivy scan on a local filesystem represened by a set of overlays.
@@ -424,13 +424,13 @@ func ScanOverlays(ctx context.Context, artifactOpts trivyartifact.Option, trivyC
 		return nil, fmt.Errorf("unable to create artifact from fs: %w", err)
 	}
 
-	return doTrivyScan(ctx, trivyArtifact, trivyCache)
+	return Scan(ctx, trivyArtifact, trivyCache)
 }
 
-// doTrivyScan scans trivyArtifact. When the scan runs out of time after it
-// analyzed the artifact, doTrivyScan returns the partial report with an error
+// Scan scans trivyArtifact for its SBOM. When the scan runs out of time after
+// it analyzed the artifact, Scan returns the partial report with an error
 // wrapping context.DeadlineExceeded.
-func doTrivyScan(ctx context.Context, trivyArtifact trivyartifact.Artifact, trivyCache trivycache.LocalArtifactCache) (*trivytypes.Report, error) {
+func Scan(ctx context.Context, trivyArtifact trivyartifact.Artifact, trivyCache trivycache.LocalArtifactCache) (*trivytypes.Report, error) {
 	trivyInitOnce.Do(func() {
 		// Making sure the Unpackaged post handler relying on external DBs is
 		// deregistered
