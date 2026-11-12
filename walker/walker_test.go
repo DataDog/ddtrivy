@@ -3,8 +3,6 @@
 // This product includes software developed at Datadog (https://www.datadoghq.com/).
 // Copyright 2016-present Datadog, Inc.
 
-//go:build trivy
-
 // Package walker holds the trivy walkers
 package walker
 
@@ -13,6 +11,8 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -140,4 +140,92 @@ func TestFS_WalkContextDone(t *testing.T) {
 			assert.Equal(t, tt.wantVisits, visits)
 		})
 	}
+}
+
+// TestFS_WalkTree walks trees made in a test directory and checks the files
+// it reports, read through the opener.
+func TestFS_WalkTree(t *testing.T) {
+	tests := []struct {
+		name   string
+		files  []string          // slash-separated, relative to the test directory
+		links  map[string]string // name to target
+		root   string            // walk root, relative to the test directory
+		option walker.Option
+		want   []string
+	}{
+		{
+			name:  "Latin-1 directory",
+			files: []string{"opt/app/caf\xe9/readme.txt", "opt/app/lib/x.txt"},
+			want:  []string{"opt/app/caf\xe9/readme.txt", "opt/app/lib/x.txt"},
+		},
+		{
+			name:  "root is a link",
+			files: []string{"tree/a.txt"},
+			links: map[string]string{"link": "tree"},
+			root:  "link",
+			want:  []string{"a.txt"},
+		},
+		{
+			name:  "links in the tree",
+			files: []string{"dir/a.txt", "file.txt"},
+			links: map[string]string{"dirlink": "dir", "filelink": "file.txt"},
+			want:  []string{"dir/a.txt", "file.txt"},
+		},
+		{
+			name:   "only dirs",
+			files:  []string{"opt/a/b.txt", "usr/include/c.h", "var/lib/dpkg/info/x.md5sums", "var/lib/dpkg/status"},
+			option: walker.Option{OnlyDirs: []string{"var/lib/dpkg/*", "opt/**"}},
+			want:   []string{"opt/a/b.txt", "var/lib/dpkg/status"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, f := range tt.files {
+				p := filepath.Join(dir, filepath.FromSlash(f))
+				require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+				require.NoError(t, os.WriteFile(p, []byte(path.Base(f)), 0o644))
+			}
+			for name, target := range tt.links {
+				require.NoError(t, os.Symlink(target, filepath.Join(dir, name)))
+			}
+
+			var got []string
+			err := NewFSWalker().Walk(t.Context(), filepath.Join(dir, tt.root), tt.option, func(_ context.Context, filePath string, _ os.FileInfo, opener analyzer.Opener) error {
+				got = append(got, filePath)
+				f, err := opener()
+				require.NoError(t, err)
+				defer f.Close()
+				b, err := io.ReadAll(f)
+				require.NoError(t, err)
+				assert.Equal(t, path.Base(filePath), string(b))
+				return nil
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestFS_WalkDeepTree walks a tree whose deepest paths pass PATH_MAX, where
+// a listing by path stops. The walk passes over them and reports the rest.
+func TestFS_WalkDeepTree(t *testing.T) {
+	dir := t.TempDir()
+	r, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	defer r.Close()
+	long := strings.Repeat(strings.Repeat("d", 200)+"/", 19)
+	deep := long + strings.Repeat(strings.Repeat("d", 200)+"/", 3)
+	require.NoError(t, r.MkdirAll(deep, 0o755))
+	require.NoError(t, r.WriteFile(deep+"deep.txt", []byte("deep.txt"), 0o644))
+	require.NoError(t, r.WriteFile(long+strings.Repeat("f", 250), []byte("f"), 0o644))
+	require.NoError(t, r.WriteFile("top.txt", []byte("top.txt"), 0o644))
+
+	var got []string
+	err = NewFSWalker().Walk(t.Context(), dir, walker.Option{}, func(_ context.Context, filePath string, _ os.FileInfo, _ analyzer.Opener) error {
+		got = append(got, filePath)
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"top.txt"}, got)
 }
