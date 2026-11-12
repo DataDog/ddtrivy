@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"golang.org/x/xerrors"
 
@@ -80,15 +81,24 @@ func (w *FSWalker) Walk(ctx context.Context, rootPath string, opt walker.Option,
 
 	prefetchCtx, cancel := context.WithCancel(ctx)
 	var prefetched sync.WaitGroup
-	prefetched.Go(func() { walker.Prefetch(prefetchCtx, root.FS(), opt, walker.PrefetchWorkers) })
+	prefetched.Go(func() { walker.Prefetch(prefetchCtx, os.DirFS(rootPath), opt, walker.PrefetchWorkers) })
 	defer prefetched.Wait()
 	defer cancel()
 
 	walkDirFunc := w.walkDirFunc(ctx, root, fn, opt)
 	walkDirFunc = w.onError(walkDirFunc, opt)
 
-	// Walk the filesystem
-	if err := fs.WalkDir(root.FS(), ".", walkDirFunc); err != nil {
+	// The trailing separator makes the walk follow a root that is a
+	// symbolic link, such as /proc/<pid>/root.
+	top := rootPath + string(filepath.Separator)
+	err = filepath.WalkDir(top, func(path string, d fs.DirEntry, err error) error {
+		rel, relErr := filepath.Rel(top, path)
+		if relErr != nil {
+			return relErr
+		}
+		return walkDirFunc(rel, d, err)
+	})
+	if err != nil {
 		return xerrors.Errorf("walk dir error: %w", err)
 	}
 
@@ -137,8 +147,10 @@ func (w *FSWalker) walkDirFunc(ctx context.Context, root *os.Root, fn walker.Wal
 		default:
 		}
 
+		// A listing by path stops at PATH_MAX, as do the post-analyzers,
+		// which open files by path, so the walk passes over what lies beyond.
 		if err != nil {
-			if errors.Is(err, fs.ErrPermission) || errors.Is(err, os.ErrNotExist) {
+			if errors.Is(err, fs.ErrPermission) || errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENAMETOOLONG) {
 				return nil
 			}
 			return err
@@ -165,6 +177,10 @@ func (w *FSWalker) walkDirFunc(ctx context.Context, root *os.Root, fn walker.Wal
 		}
 
 		info, err := d.Info()
+		if errors.Is(err, syscall.ENAMETOOLONG) {
+			// A file past PATH_MAX, as above.
+			return nil
+		}
 		if err != nil {
 			return xerrors.Errorf("file info error: %w", err)
 		}
