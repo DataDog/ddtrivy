@@ -84,7 +84,7 @@ func TestFS_Walk(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w := NewFSWalker()
+			w := NewFSWalker(tt.rootDir)
 			err := w.Walk(context.TODO(), tt.rootDir, tt.option, tt.analyzeFn)
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
@@ -131,7 +131,7 @@ func TestFS_WalkContextDone(t *testing.T) {
 			}
 
 			visits := 0
-			err := NewFSWalker().Walk(ctx, tt.rootDir, tt.option, func(context.Context, string, os.FileInfo, analyzer.Opener) error {
+			err := NewFSWalker(tt.rootDir).Walk(ctx, tt.rootDir, tt.option, func(context.Context, string, os.FileInfo, analyzer.Opener) error {
 				visits++
 				cancel()
 				return nil
@@ -191,7 +191,7 @@ func TestFS_WalkTree(t *testing.T) {
 			}
 
 			var got []string
-			err := NewFSWalker().Walk(t.Context(), filepath.Join(dir, tt.root), tt.option, func(_ context.Context, filePath string, _ os.FileInfo, opener analyzer.Opener) error {
+			err := NewFSWalker(filepath.Join(dir, tt.root)).Walk(t.Context(), filepath.Join(dir, tt.root), tt.option, func(_ context.Context, filePath string, _ os.FileInfo, opener analyzer.Opener) error {
 				got = append(got, filePath)
 				f, err := opener()
 				require.NoError(t, err)
@@ -222,10 +222,150 @@ func TestFS_WalkDeepTree(t *testing.T) {
 	require.NoError(t, r.WriteFile("top.txt", []byte("top.txt"), 0o644))
 
 	var got []string
-	err = NewFSWalker().Walk(t.Context(), dir, walker.Option{}, func(_ context.Context, filePath string, _ os.FileInfo, _ analyzer.Opener) error {
+	err = NewFSWalker(dir).Walk(t.Context(), dir, walker.Option{}, func(_ context.Context, filePath string, _ os.FileInfo, _ analyzer.Opener) error {
 		got = append(got, filePath)
 		return nil
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"top.txt"}, got)
+}
+
+// TestFS_WalkStaticPaths walks a static path inside a scan root, next to an
+// outside directory that a link may point at.
+func TestFS_WalkStaticPaths(t *testing.T) {
+	const abs = "abs:" // a link target that names a path in the test directory
+	tests := []struct {
+		name     string
+		files    []string          // relative to the test directory
+		links    map[string]string // name to target
+		scanRoot string            // relative to the test directory
+		slash    bool              // scan / instead, with static under the scan root
+		static   string            // relative to the scan root
+		want     []string          // path=contents of each file visited
+	}{
+		{
+			name:   "in-root link to a file",
+			files:  []string{"root/usr/lib/os-release"},
+			links:  map[string]string{"root/etc/os-release": "../usr/lib/os-release"},
+			static: "etc/os-release",
+			want:   []string{".=os-release"},
+		},
+		{
+			name:   "absolute link",
+			files:  []string{"outside/os-release"},
+			links:  map[string]string{"root/etc/os-release": abs + "outside/os-release"},
+			static: "etc/os-release",
+		},
+		{
+			name:   "link that climbs out",
+			files:  []string{"outside/os-release"},
+			links:  map[string]string{"root/etc/os-release": "../../outside/os-release"},
+			static: "etc/os-release",
+		},
+		{
+			name:   "loop",
+			links:  map[string]string{"root/etc/os-release": "os-release"},
+			static: "etc/os-release",
+		},
+		{
+			name:   "file in the path",
+			files:  []string{"root/etc"},
+			static: "etc/os-release",
+		},
+		{
+			name:   "more steps than os.Root takes",
+			files:  []string{"root/etc/x/f", "root/usr/lib/os-release"},
+			links:  map[string]string{"root/etc/os-release": strings.Repeat("x/../", 86) + "../usr/lib/os-release"},
+			static: "etc/os-release",
+		},
+		{
+			name:   "missing",
+			files:  []string{"root/usr/lib/os-release"},
+			static: "etc/os-release",
+		},
+		{
+			name:   "in-root link to a directory",
+			files:  []string{"root/usr/lib/sysimage/rpm/rpmdb.sqlite"},
+			links:  map[string]string{"root/var/lib/rpm": "../../usr/lib/sysimage/rpm"},
+			static: "var/lib/rpm",
+			want:   []string{"rpmdb.sqlite=rpmdb.sqlite"},
+		},
+		{
+			name:   "absolute link to a directory",
+			files:  []string{"outside/rpm/rpmdb.sqlite"},
+			links:  map[string]string{"root/var/lib/rpm": abs + "outside/rpm"},
+			static: "var/lib/rpm",
+		},
+		{
+			name:     "root is a link",
+			files:    []string{"root/etc/os-release"},
+			links:    map[string]string{"rootlink": "root"},
+			scanRoot: "rootlink",
+			static:   "etc/os-release",
+			want:     []string{".=os-release"},
+		},
+		{
+			name:   "absolute link under /",
+			files:  []string{"outside/os-release"},
+			links:  map[string]string{"root/etc/os-release": abs + "outside/os-release"},
+			slash:  true,
+			static: "etc/os-release",
+			want:   []string{".=os-release"},
+		},
+		{
+			name:   "absolute link to a directory under /",
+			files:  []string{"outside/rpm/rpmdb.sqlite"},
+			links:  map[string]string{"root/var/lib/rpm": abs + "outside/rpm"},
+			slash:  true,
+			static: "var/lib/rpm",
+			want:   []string{"rpmdb.sqlite=rpmdb.sqlite"},
+		},
+		{
+			name:   "loop under /",
+			links:  map[string]string{"root/etc/os-release": "os-release"},
+			slash:  true,
+			static: "etc/os-release",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(dir, "root"), 0o755))
+			for _, f := range tt.files {
+				p := filepath.Join(dir, filepath.FromSlash(f))
+				require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+				require.NoError(t, os.WriteFile(p, []byte(path.Base(f)), 0o644))
+			}
+			for name, target := range tt.links {
+				if p, ok := strings.CutPrefix(target, abs); ok {
+					target = filepath.Join(dir, filepath.FromSlash(p))
+				}
+				p := filepath.Join(dir, filepath.FromSlash(name))
+				require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+				require.NoError(t, os.Symlink(target, p))
+			}
+			scanRoot := tt.scanRoot
+			if scanRoot == "" {
+				scanRoot = "root"
+			}
+			root := filepath.Join(dir, scanRoot)
+			name := filepath.Join(root, filepath.FromSlash(tt.static))
+			if tt.slash {
+				root = "/"
+			}
+
+			var got []string
+			err := NewFSWalker(root).Walk(t.Context(), name, walker.Option{}, func(_ context.Context, filePath string, _ os.FileInfo, opener analyzer.Opener) error {
+				f, err := opener()
+				require.NoError(t, err)
+				defer f.Close()
+				b, err := io.ReadAll(f)
+				require.NoError(t, err)
+				got = append(got, filePath+"="+string(b))
+				return nil
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

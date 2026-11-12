@@ -189,7 +189,7 @@ func TestTrivyOptionsAllSkipsVolumeDevices(t *testing.T) {
 	wo.SkipDirs = rootFiles(root, wo.SkipDirs)
 	wo.SkipFiles = rootFiles(root, wo.SkipFiles)
 	var got []string
-	err := fswalker.NewFSWalker().Walk(context.Background(), root, wo, func(_ context.Context, p string, _ os.FileInfo, _ analyzer.Opener) error {
+	err := fswalker.NewFSWalker(root).Walk(context.Background(), root, wo, func(_ context.Context, p string, _ os.FileInfo, _ analyzer.Opener) error {
 		got = append(got, p)
 		return nil
 	})
@@ -204,6 +204,7 @@ type deadlineAnalyzer struct{}
 func (deadlineAnalyzer) Type() analyzer.Type                      { return "deadline" }
 func (deadlineAnalyzer) Version() int                             { return 1 }
 func (deadlineAnalyzer) Required(path string, _ os.FileInfo) bool { return path == "deadline" }
+func (deadlineAnalyzer) StaticPaths() []string                    { return []string{"deadline"} }
 
 func (deadlineAnalyzer) PostAnalyze(context.Context, analyzer.PostAnalysisInput) (*analyzer.AnalysisResult, error) {
 	return nil, context.DeadlineExceeded
@@ -238,4 +239,32 @@ func TestScanRootFSPartialReport(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"musl@1.2.5-r0"}, pkgs)
+}
+
+// A link at a static path resolves inside the scanned root, so an absolute
+// one names nothing there.
+func TestScanRootFSStaticPathLinks(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root")
+	outside := filepath.Join(dir, "outside")
+	for name, data := range map[string]string{
+		"root/etc/debian_version": "12.5\n",
+		"outside/status":          "Package: outside\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1.0\n",
+	} {
+		p := filepath.Join(dir, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(data), 0o644))
+	}
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "var/lib/dpkg"), 0o755))
+	require.NoError(t, os.Symlink(filepath.Join(outside, "status"), filepath.Join(root, "var/lib/dpkg/status")))
+
+	report, err := ScanRootFS(t.Context(), TrivyOptionsOS(1), trivycache.NewMemoryCache(), root, ftypes.TypeFilesystem)
+	require.NoError(t, err)
+	require.NotNil(t, report.Metadata.OS)
+	assert.Equal(t, ftypes.Debian, report.Metadata.OS.Family)
+	for _, r := range report.Results {
+		for _, p := range r.Packages {
+			assert.NotEqual(t, "outside", p.Name, "the scan read %s", outside)
+		}
+	}
 }
