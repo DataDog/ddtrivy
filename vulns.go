@@ -68,7 +68,7 @@ var osPkgDirs = []string{
 	"lib/apk/db/*",
 	"usr/lib/*",
 	"usr/lib/sysimage/rpm/*",
-	"var/lib/dpkg/**",
+	"var/lib/dpkg/*",
 	"var/lib/rpm/*",
 	"usr/share/rpm/*", // RHEL 9 for Edge
 	"aarch64-bottlerocket-linux-gnu/sys-root/usr/lib/*",

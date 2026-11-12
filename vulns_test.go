@@ -197,6 +197,36 @@ func TestTrivyOptionsAllSkipsVolumeDevices(t *testing.T) {
 	assert.Equal(t, []string{"opt/app/package.json"}, got)
 }
 
+// A vendor package such as splunkforwarder bundles Python packages under
+// /opt, and its md5sums list their files. A host application scan reads the
+// dpkg status alone, so those packages stay in the report.
+func TestTrivyOptionsAllForHostsVendorPackages(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"etc/os-release":                            "ID=ubuntu\nVERSION_ID=\"24.04\"\n",
+		"var/lib/dpkg/status":                       "Package: splunkforwarder\nStatus: install ok installed\nMaintainer: Splunk Inc. <releases@splunk.com>\nArchitecture: amd64\nVersion: 9.1.2\nDescription: Splunk Universal Forwarder\n",
+		"var/lib/dpkg/info/splunkforwarder.md5sums": "d41d8cd98f00b204e9800998ecf8427e  opt/splunkforwarder/lib/python3.9/site-packages/requests-2.31.0.dist-info/METADATA\n",
+		"opt/splunkforwarder/lib/python3.9/site-packages/requests-2.31.0.dist-info/METADATA": "Metadata-Version: 2.1\nName: requests\nVersion: 2.31.0\n",
+	}
+	for name, content := range files {
+		p := filepath.Join(root, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+	}
+
+	report, err := ScanRootFS(t.Context(), TrivyOptionsAllForHosts(1), trivycache.NewMemoryCache(), root, ftypes.TypeFilesystem)
+	require.NoError(t, err)
+
+	var pkgs []string
+	for _, r := range report.Results {
+		for _, p := range r.Packages {
+			pkgs = append(pkgs, p.Name+"@"+p.Version)
+		}
+	}
+	assert.Contains(t, pkgs, "splunkforwarder@9.1.2")
+	assert.Contains(t, pkgs, "requests@2.31.0")
+}
+
 // deadlineAnalyzer fails as a post analyzer does when its
 // PostAnalyzerTimeout ends it.
 type deadlineAnalyzer struct{}
