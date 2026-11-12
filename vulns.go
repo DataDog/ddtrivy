@@ -402,7 +402,7 @@ func ScanRootFS(ctx context.Context, artifactOpts artifact.Option, trivyCache tr
 	wo.OnlyDirs = rootFiles(rootFS, wo.OnlyDirs)
 	wo.SkipDirs = rootFiles(rootFS, wo.SkipDirs)
 	wo.SkipFiles = rootFiles(rootFS, wo.SkipFiles)
-	fs := fswalker.NewFSWalker()
+	fs := fswalker.NewFSWalker(rootFS)
 	trivyArtifact, err := trivyartifactlocal.NewArtifact(rootFS, trivyCache, fs, artifactOpts)
 	if err != nil {
 		return nil, fmt.Errorf("could not create local trivy artifact: %w", err)
