@@ -20,7 +20,6 @@ import (
 	"syscall"
 
 	"github.com/aquasecurity/trivy-db/pkg/db"
-	jdb "github.com/aquasecurity/trivy-java-db/pkg/db"
 	trivycache "github.com/aquasecurity/trivy/pkg/cache"
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/applier"
@@ -31,7 +30,6 @@ import (
 	trivyhandler "github.com/aquasecurity/trivy/pkg/fanal/handler"
 	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/fanal/walker"
-	"github.com/aquasecurity/trivy/pkg/javadb"
 	trivyscanner "github.com/aquasecurity/trivy/pkg/scan"
 	"github.com/aquasecurity/trivy/pkg/scan/langpkg"
 	"github.com/aquasecurity/trivy/pkg/scan/local"
@@ -41,15 +39,8 @@ import (
 
 	fswalker "github.com/DataDog/ddtrivy/walker"
 
-	"github.com/google/go-containerregistry/pkg/name"
 	"golang.org/x/exp/slices"
 )
-
-var trivyDefaultJavaDBRepositories = []string{
-	fmt.Sprintf("%s:%d", "mirror.gcr.io/aquasec/trivy-java-db", jdb.SchemaVersion),
-	fmt.Sprintf("%s:%d", "ghcr.io/aquasecurity/trivy-java-db", jdb.SchemaVersion),
-	fmt.Sprintf("%s:%d", "public.ecr.aws/aquasecurity/trivy-java-db", jdb.SchemaVersion),
-}
 
 var trivyInitOnce sync.Once
 
@@ -77,22 +68,6 @@ var osPkgDirs = []string{
 	"x86_64-bottlerocket-linux-gnu/sys-root/usr/share/bottlerocket/*",
 	"root/buildinfo/content_manifests/*",
 	"usr/share/buildinfo/*",
-}
-
-func InitJavaDB(trivyCacheDir string) {
-	var repos []name.Reference
-	for _, url := range trivyDefaultJavaDBRepositories {
-		repo, err := name.NewTag(url)
-		if err != nil {
-			panic(fmt.Errorf("failed to initialize JavaDB: %w", err))
-		}
-		repos = append(repos, repo)
-	}
-	javadb.Init(trivyCacheDir, repos, false, false, ftypes.RegistryOptions{})
-}
-
-func UpdateJavaDB() error {
-	return javadb.Update()
 }
 
 var trivyAnalyzersAll = []analyzer.Type{
