@@ -23,5 +23,5 @@ func ScanImage(ctx context.Context, artifactOpts trivyartifact.Option, trivyCach
 		return nil, fmt.Errorf("oci-image: could not create trivy image artifact: %w", err)
 	}
 
-	return doTrivyScan(ctx, trivyArtifact, trivyCache)
+	return Scan(ctx, trivyArtifact, trivyCache)
 }
