@@ -20,7 +20,7 @@ import (
 func ScanImage(ctx context.Context, artifactOpts trivyartifact.Option, trivyCache trivycache.Cache, image ftypes.Image) (*trivytypes.Report, error) {
 	trivyArtifact, err := trivyartifactimage.NewArtifact(image, trivyCache, artifactOpts)
 	if err != nil {
-		return nil, fmt.Errorf("ecr-image: could not create trivy image artifact: %w", err)
+		return nil, fmt.Errorf("oci-image: could not create trivy image artifact: %w", err)
 	}
 
 	return doTrivyScan(ctx, trivyArtifact, trivyCache)
