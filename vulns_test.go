@@ -7,8 +7,10 @@ package ddtrivy
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	trivycache "github.com/aquasecurity/trivy/pkg/cache"
@@ -20,98 +22,23 @@ import (
 	fswalker "github.com/DataDog/ddtrivy/walker"
 )
 
+// getTrivyDisabledAnalyzers returns trivyAnalyzersAll minus the allowed
+// analyzers, so an analyzer that Trivy registers outside that list runs in
+// every scan.
 func TestDisablesAnalyzersIsComplete(t *testing.T) {
-	analyzers := getTrivyDisabledAnalyzers(nil)
-	set := make(map[analyzer.Type]struct{})
-	for _, a := range analyzers {
-		//exhaustive:enforce
-		switch a {
-		case analyzer.TypeOSRelease,
-			analyzer.TypeAlpine,
-			analyzer.TypeAmazon,
-			analyzer.TypeAzure,
-			analyzer.TypeCBLMariner,
-			analyzer.TypeDebian,
-			analyzer.TypePhoton,
-			analyzer.TypeCentOS,
-			analyzer.TypeRocky,
-			analyzer.TypeAlma,
-			analyzer.TypeFedora,
-			analyzer.TypeOracle,
-			analyzer.TypeRedHatBase,
-			analyzer.TypeSUSE,
-			analyzer.TypeUbuntu,
-			analyzer.TypeUbuntuESM,
-			analyzer.TypeCoreOS,
-			analyzer.TypeApk,
-			analyzer.TypeBottlerocketInventory,
-			analyzer.TypeDpkg,
-			analyzer.TypeDpkgLicense,
-			analyzer.TypeRpm,
-			analyzer.TypeRpmArchive,
-			analyzer.TypeRpmqa,
-			analyzer.TypeApkRepo,
-			analyzer.TypeBundler,
-			analyzer.TypeGemSpec,
-			analyzer.TypeCargo,
-			analyzer.TypeComposer,
-			analyzer.TypeJar,
-			analyzer.TypePom,
-			analyzer.TypeGradleLock,
-			analyzer.TypeSbtLock,
-			analyzer.TypeNpmPkgLock,
-			analyzer.TypeNodePkg,
-			analyzer.TypeYarn,
-			analyzer.TypePnpm,
-			analyzer.TypeBun,
-			analyzer.TypeNuget,
-			analyzer.TypeDotNetCore,
-			analyzer.TypePackagesProps,
-			analyzer.TypeCondaPkg,
-			analyzer.TypeCondaEnv,
-			analyzer.TypePythonPkg,
-			analyzer.TypePythonPkgEgg,
-			analyzer.TypePip,
-			analyzer.TypePipenv,
-			analyzer.TypePoetry,
-			analyzer.TypeUv,
-			analyzer.TypeGoBinary,
-			analyzer.TypeGoMod,
-			analyzer.TypeRustBinary,
-			analyzer.TypeConanLock,
-			analyzer.TypeCocoaPods,
-			analyzer.TypeSwift,
-			analyzer.TypePubSpecLock,
-			analyzer.TypeMixLock,
-			analyzer.TypeJulia,
-			analyzer.TypeComposerVendor,
-			analyzer.TypeAzureARM,
-			analyzer.TypeCloudFormation,
-			analyzer.TypeDockerfile,
-			analyzer.TypeHelm,
-			analyzer.TypeKubernetes,
-			analyzer.TypeTerraform,
-			analyzer.TypeTerraformPlanJSON,
-			analyzer.TypeTerraformPlanSnapshot,
-			analyzer.TypeYAML,
-			analyzer.TypeJSON,
-			analyzer.TypeAnsible,
-			analyzer.TypeExecutable,
-			analyzer.TypeSBOM,
-			analyzer.TypeApkCommand,
-			analyzer.TypeHistoryDockerfile,
-			analyzer.TypeImageConfigSecret,
-			analyzer.TypeLicenseFile,
-			analyzer.TypeSecret,
-			analyzer.TypeRedHatContentManifestType,
-			analyzer.TypeRedHatDockerfileType:
-			set[a] = struct{}{}
-		default:
-			t.Fatalf("unexpected analyzer %s", a)
+	ag, err := analyzer.NewAnalyzerGroup(analyzer.AnalyzerOptions{})
+	require.NoError(t, err)
+	versions := ag.AnalyzerVersions()
+	require.NotEmpty(t, versions.Analyzers, "Trivy registers no analyzers")
+	disabled := getTrivyDisabledAnalyzers(nil)
+	for _, registered := range []map[string]int{versions.Analyzers, versions.PostAnalyzers} {
+		for _, name := range slices.Sorted(maps.Keys(registered)) {
+			// TestScanRootFSPartialReport registers deadline for itself.
+			if analyzer.Type(name) == (deadlineAnalyzer{}).Type() {
+				continue
+			}
+			assert.Contains(t, disabled, analyzer.Type(name), "getTrivyDisabledAnalyzers(nil) is missing %s, which Trivy registers", name)
 		}
-	}
-	if len(set) != 79 {
-		t.Fatalf("missing analyzer: expected 79 got %d", len(set))
 	}
 }
 
