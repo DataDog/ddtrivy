@@ -2,7 +2,7 @@ module github.com/DataDog/ddtrivy
 
 go 1.26.6
 
-replace github.com/aquasecurity/trivy => github.com/DataDog/trivy v0.76.3-0.20261118095523-5a11e97732f6
+replace github.com/aquasecurity/trivy => github.com/DataDog/trivy v0.76.3-0.20261120123614-f08fbc6fe184
 
 require (
 	github.com/aquasecurity/trivy v0.69.1
