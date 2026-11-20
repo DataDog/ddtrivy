@@ -150,6 +150,7 @@ var trivyAnalyzersAll = []analyzer.Type{
 	analyzer.TypeAnsible,
 	// Non-packaged
 	analyzer.TypeExecutable,
+	analyzer.TypeJavaRuntime,
 	analyzer.TypeSBOM,
 	// Image Config
 	analyzer.TypeApkCommand,
@@ -325,8 +326,10 @@ func TrivyOptionsAllForHosts(parallel int) trivyartifact.Option {
 	var allowedAnalyzers []analyzer.Type
 	allowedAnalyzers = append(allowedAnalyzers, getOSAnalyzers()...)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeIndividualPkgs...)
-	// Enables the executable analyzer to retrieve version for java, nodejs, php and python interpreters.
+	// Enables the executable analyzer to retrieve version for nodejs, php and python interpreters.
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeExecutable)
+	// Enables the java-runtime analyzer to retrieve version and vendor of Java runtimes.
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeJavaRuntime)
 
 	artifactOption := getArtifactOption(allowedAnalyzers, parallel)
 	artifactOption.WalkerOption.OnlyDirs = append(osPkgDirs,
@@ -350,8 +353,10 @@ func TrivyOptionsAll(parallel int) trivyartifact.Option {
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeLanguages...)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeLockfiles...)
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeIndividualPkgs...)
-	// Enables the executable analyzer to retrieve version for java, nodejs, php and python interpreters.
+	// Enables the executable analyzer to retrieve version for nodejs, php and python interpreters.
 	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeExecutable)
+	// Enables the java-runtime analyzer to retrieve version and vendor of Java runtimes.
+	allowedAnalyzers = append(allowedAnalyzers, analyzer.TypeJavaRuntime)
 
 	return getArtifactOption(allowedAnalyzers, parallel)
 }
