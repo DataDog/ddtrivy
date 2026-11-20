@@ -7,8 +7,8 @@ github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/CycloneDX/cyclonedx-go v0.12.0 h1:/7Jum36UA6V043tQZ/fE3jf+Nf9gn/qxUFfd7QReMy8=
 github.com/CycloneDX/cyclonedx-go v0.12.0/go.mod h1:V2577HhxDDCDLYfkm55WJrz16nHTfyQZwcWUBSG7Z28=
-github.com/DataDog/trivy v0.76.3-0.20261118095523-5a11e97732f6 h1:dqbnGGz4w+y1kfRXuqHnrsVBhSUTdR5sxX5/nUU+4m4=
-github.com/DataDog/trivy v0.76.3-0.20261118095523-5a11e97732f6/go.mod h1:O+38LOykiDWNuWpiC0OZ4W4o5rEovONUc46KnDFaBD0=
+github.com/DataDog/trivy v0.76.3-0.20261120175539-df87a6225efc h1:MAmxWkgcbVr6H0R3u5UTfQKZOFWaE8pz0YLWIb4re64=
+github.com/DataDog/trivy v0.76.3-0.20261120175539-df87a6225efc/go.mod h1:O+38LOykiDWNuWpiC0OZ4W4o5rEovONUc46KnDFaBD0=
 github.com/DataDog/zstd v1.5.5 h1:oWf5W7GtOLgp6bciQYDmhHHjdhYkALu6S/5Ni9ZgSvQ=
 github.com/DataDog/zstd v1.5.5/go.mod h1:g4AWEaM3yOg3HYfnJ3YIawPnVdXJh9QME85blwSAmyw=
 github.com/Intevation/gval v1.3.0 h1:+Ze5sft5MmGbZrHj06NVUbcxCb67l9RaPTLMNr37mjw=
