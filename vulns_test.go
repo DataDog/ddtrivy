@@ -225,3 +225,55 @@ func TestScanRootFSStaticPathLinks(t *testing.T) {
 		}
 	}
 }
+
+// A Go binary in a bin directory is an application of its own, unless a
+// package lists it in its md5sums.
+func TestScanRootFSBinDirs(t *testing.T) {
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	bin, err := os.ReadFile(exe)
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		name  string
+		files map[string]string
+		app   string
+		want  bool
+	}{
+		{name: "outside any package", app: "bin/app", want: true},
+		{
+			name: "in a Debian package",
+			files: map[string]string{
+				"etc/debian_version":            "12.5\n",
+				"var/lib/dpkg/status":           "Package: app\nStatus: install ok installed\nMaintainer: Debian Go Packaging Team <team+pkg-go@tracker.debian.org>\nArchitecture: amd64\nVersion: 1.0\n",
+				"var/lib/dpkg/info/app.md5sums": "d41d8cd98f00b204e9800998ecf8427e  usr/bin/app\n",
+			},
+			app:  "usr/bin/app",
+			want: false,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			for name, data := range tt.files {
+				p := filepath.Join(root, name)
+				require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+				require.NoError(t, os.WriteFile(p, []byte(data), 0o644))
+			}
+			p := filepath.Join(root, tt.app)
+			require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+			require.NoError(t, os.WriteFile(p, bin, 0o755))
+
+			report, err := ScanRootFS(t.Context(), TrivyOptionsAll(1), trivycache.NewMemoryCache(), root, ftypes.TypeFilesystem)
+			require.NoError(t, err)
+			var found bool
+			for _, r := range report.Results {
+				for _, pkg := range r.Packages {
+					if r.Target == tt.app && pkg.Name == "github.com/stretchr/testify" {
+						found = true
+					}
+				}
+			}
+			assert.Equal(t, tt.want, found, "testify from %s", tt.app)
+		})
+	}
+}
